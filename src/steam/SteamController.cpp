@@ -49,6 +49,12 @@ bool SteamController::Open() {
                 return true;
             }
 
+            if (n > 0)
+                printf("Unexpected report ID 0x%02X on PID=%04X (expected 0x%02X) — possible firmware mismatch.\n",
+                       buf[0], pid, REPORT_STATE);
+            else
+                printf("Read timeout on PID=%04X vendor interface — no active controller on this slot.\n", pid);
+
             m_device.Close();
         }
     }
