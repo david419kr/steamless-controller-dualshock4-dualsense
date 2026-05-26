@@ -6,10 +6,17 @@ This fork adds DualShock 4 output support to SteamlessController, mainly for usi
 
 - Requires the latest [ViGEmBus driver](https://github.com/nefarius/ViGEmBus/releases/latest).
 - For Steam usage, install [HidHide](https://github.com/nefarius/HidHide/releases/latest) so SteamlessController can hide the physical Steam Controller/Puck while Steamless Mode is active.
+- Might also need [Microsoft Visual C++ Redistributable 2015-2022 x64](https://aka.ms/vc14/vc_redist.x64.exe), if the app does not open.
 - With HidHide enabled, Steam can see the virtual DualShock 4 instead of the original Steam Controller, allowing native DualShock 4 input paths in supported games.
 - DualShock 4 mode supports buttons, sticks, triggers, native gyro/accelerometer output, touchpad output, rumble, and some of enhanced Steam Controller haptics.
 - HidHide + DualShock 4 mode has been tested in Steam with native gyro controls working in **Pragmata**.
 - L4/L5/R4/R5 back-button mapping is supported.
+
+<img width="413" height="252" alt="image" src="https://github.com/user-attachments/assets/770f88d3-5fc4-459d-a453-0941e204fa30" />
+<img width="512" height="239" alt="image" src="https://github.com/user-attachments/assets/a7ffceb8-4ac2-4f34-88f3-1833251141af" />
+<img width="342" height="217" alt="image" src="https://github.com/user-attachments/assets/6a95ed72-a9cd-46ff-becc-6bc9d8e5e9b6" />
+<img width="425" height="361" alt="image" src="https://github.com/user-attachments/assets/90992791-e4dd-4156-a173-022f305af0ec" />
+
 
 ---
 
