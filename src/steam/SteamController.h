@@ -35,6 +35,12 @@ struct SteamControllerState {
     int16_t  gyroZ = 0;
 };
 
+struct SteamControllerBatteryState {
+    bool     valid = false;
+    uint8_t  levelPercent = 100;
+    uint8_t  chargeState = 0;
+};
+
 class SteamController {
 public:
     static constexpr uint16_t VALVE_VID        = 0x28DE;
@@ -47,10 +53,14 @@ public:
     // Input report IDs (device → host)
     static constexpr uint8_t REPORT_STATE         = 0x45;  // BLE/no-quaternion state report
     static constexpr uint8_t REPORT_STATE_LEGACY  = 0x42;  // USB/full state report
-    static constexpr uint8_t REPORT_SECONDARY      = 0x43;  // 14 bytes: gyro / secondary state
+    static constexpr uint8_t REPORT_BATTERY_STATUS = 0x43;  // TritonBatteryStatus_t
     static constexpr uint8_t REPORT_STATUS         = 0x44;  //  5 bytes: battery / connection
     static constexpr uint8_t REPORT_UNKNOWN_7B     = 0x7B;  // 12 bytes: TBD
     static constexpr uint8_t REPORT_UNKNOWN_79     = 0x79;  //  1 byte:  TBD
+
+    static constexpr uint8_t CHARGE_STATE_DISCHARGING  = 1;
+    static constexpr uint8_t CHARGE_STATE_CHARGING     = 2;
+    static constexpr uint8_t CHARGE_STATE_CHARGING_DONE = 4;
 
     // Feature report IDs — the command channel to the firmware.
     // Commands are wrapped inside Feature Report 0x01 (or 0x02 as fallback).
@@ -166,6 +176,8 @@ public:
 
     static bool IsStateReportId(uint8_t reportId);
     static bool ParseStateReport(const uint8_t* buffer, size_t size, SteamControllerState& state);
+    static bool IsBatteryReportId(uint8_t reportId);
+    static bool ParseBatteryReport(const uint8_t* buffer, size_t size, SteamControllerBatteryState& state);
 
     bool SetImuEnabled(bool enabled);
     void SetRumble(uint8_t largeMotor, uint8_t smallMotor);

@@ -26,6 +26,7 @@ public:
     VirtualControllerMode Mode() const { return m_mode; }
 
     void Update(const SteamControllerState& state);
+    void SetBatteryState(uint8_t levelPercent, uint8_t chargeState);
     void OnRumble(uint8_t largeMotor, uint8_t smallMotor);
 
 private:
@@ -43,4 +44,6 @@ private:
     uint8_t m_leftTracking = 0;
     bool m_wasRightTouching = false;
     bool m_wasLeftTouching = false;
+    uint8_t m_ds4BatteryLevel = 0x0B;
+    uint8_t m_ds4BatterySpecial = 0x1B;
 };

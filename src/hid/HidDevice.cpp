@@ -3,9 +3,12 @@
 #include <hidsdi.h>
 #include <hidpi.h>
 #include <setupapi.h>
+#include <cfgmgr32.h>
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <memory>
+#include <utility>
 #include <vector>
 #include "HidDevice.h"
 
@@ -72,6 +75,76 @@ std::vector<std::wstring> HidDevice::Enumerate(uint16_t vid, uint16_t pid, uint1
 
     SetupDiDestroyDeviceInfoList(devInfo);
     return paths;
+}
+
+std::vector<std::wstring> HidDevice::EnumerateInstanceIds(uint16_t vid, uint16_t pid, uint16_t usagePage) {
+    GUID hidGuid;
+    HidD_GetHidGuid(&hidGuid);
+
+    HDEVINFO devInfo = SetupDiGetClassDevsW(&hidGuid, nullptr, nullptr,
+                                             DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
+    if (devInfo == INVALID_HANDLE_VALUE)
+        return {};
+
+    std::vector<std::wstring> instanceIds;
+    SP_DEVICE_INTERFACE_DATA ifaceData{};
+    ifaceData.cbSize = sizeof(ifaceData);
+
+    for (DWORD i = 0; SetupDiEnumDeviceInterfaces(devInfo, nullptr, &hidGuid, i, &ifaceData); ++i) {
+        DWORD needed = 0;
+        SetupDiGetDeviceInterfaceDetailW(devInfo, &ifaceData, nullptr, 0, &needed, nullptr);
+        if (needed == 0)
+            continue;
+
+        auto detailBuf = std::make_unique<uint8_t[]>(needed);
+        auto* detail   = reinterpret_cast<SP_DEVICE_INTERFACE_DETAIL_DATA_W*>(detailBuf.get());
+        detail->cbSize = sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA_W);
+
+        SP_DEVINFO_DATA devInfoData{};
+        devInfoData.cbSize = sizeof(devInfoData);
+        if (!SetupDiGetDeviceInterfaceDetailW(devInfo, &ifaceData, detail, needed, nullptr, &devInfoData))
+            continue;
+
+        HANDLE h = CreateFileW(detail->DevicePath, 0,
+                               FILE_SHARE_READ | FILE_SHARE_WRITE,
+                               nullptr, OPEN_EXISTING, 0, nullptr);
+        if (h == INVALID_HANDLE_VALUE)
+            continue;
+
+        HIDD_ATTRIBUTES attrs{};
+        attrs.Size = sizeof(attrs);
+        bool match = HidD_GetAttributes(h, &attrs)
+                  && attrs.VendorID == vid
+                  && (pid == 0 || attrs.ProductID == pid);
+
+        if (match && usagePage != 0) {
+            PHIDP_PREPARSED_DATA preparsed;
+            if (HidD_GetPreparsedData(h, &preparsed)) {
+                HIDP_CAPS caps{};
+                if (HidP_GetCaps(preparsed, &caps) == HIDP_STATUS_SUCCESS)
+                    match = (caps.UsagePage == usagePage);
+                HidD_FreePreparsedData(preparsed);
+            } else {
+                match = false;
+            }
+        }
+
+        CloseHandle(h);
+
+        if (!match)
+            continue;
+
+        WCHAR instanceId[MAX_DEVICE_ID_LEN]{};
+        if (CM_Get_Device_IDW(devInfoData.DevInst, instanceId, MAX_DEVICE_ID_LEN, 0) != CR_SUCCESS)
+            continue;
+
+        std::wstring id(instanceId);
+        if (std::find(instanceIds.begin(), instanceIds.end(), id) == instanceIds.end())
+            instanceIds.push_back(std::move(id));
+    }
+
+    SetupDiDestroyDeviceInfoList(devInfo);
+    return instanceIds;
 }
 
 // ---------------------------------------------------------------------------

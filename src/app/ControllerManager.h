@@ -1,4 +1,5 @@
 #pragma once
+#include "HidHideController.h"
 #include "TrackpadMouse.h"
 #include "VirtualController.h"
 #include <functional>
@@ -29,6 +30,8 @@ public:
     void SetBackButtonsEnabled(bool enabled);
     void SetUseLeftTrackpad(bool enabled);
     void SetOutputMode(VirtualControllerMode mode);
+    void SetHideOriginalControllerEnabled(bool enabled);
+    void RevealOriginalControllerNow();
 
     bool IsConnected()             const { return m_connected; }
     bool IsGameModeActive()        const { return m_gameModeActive; }
@@ -36,6 +39,8 @@ public:
     bool IsBackButtonsEnabled()    const { return m_backButtonsEnabled; }
     bool IsUseLeftTrackpad()       const { return m_useLeftTrackpad; }
     VirtualControllerMode GetOutputMode() const { return m_outputMode; }
+    bool IsHideOriginalControllerEnabled() const { return m_hideOriginalController; }
+    bool IsHidHideAvailable() const { return m_hidHide.IsInstalled(); }
 
 private:
     void TryOpen();
@@ -50,7 +55,10 @@ private:
     bool                               m_trackpadMouseEnabled = false;
     bool                               m_backButtonsEnabled   = false;
     bool                               m_useLeftTrackpad      = false;
+    bool                               m_hideOriginalController = true;
+    bool                               m_originalHidden       = false;
     VirtualControllerMode              m_outputMode           = VirtualControllerMode::Xbox360;
+    HidHideController                  m_hidHide;
     std::unique_ptr<VirtualController> m_virtual;
     TrackpadMouse                      m_trackpad;
     std::thread                        m_readThread;

@@ -41,6 +41,8 @@ private:
     static constexpr UINT IDM_STARTUP       = 1006;
     static constexpr UINT IDM_OUTPUT_X360   = 1007;
     static constexpr UINT IDM_OUTPUT_DS4    = 1008;
+    static constexpr UINT IDM_HIDE_ORIGINAL = 1009;
+    static constexpr UINT IDM_REVEAL_ORIGINAL = 1010;
     static constexpr UINT WM_TRAY          = WM_APP + 1;
     static constexpr UINT TRAY_UID         = 1;
 };

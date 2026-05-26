@@ -27,6 +27,14 @@ static int16_t NegI16(int16_t raw) {
     return static_cast<int16_t>((raw == -32768) ? 32767 : -raw);
 }
 
+static uint8_t PercentToDs4BatteryLevel(uint8_t percent, uint8_t chargeState) {
+    if (chargeState == SteamController::CHARGE_STATE_CHARGING_DONE || percent >= 95)
+        return 0x0B;
+
+    const int level = (static_cast<int>(percent) * 10 + 50) / 100;
+    return static_cast<uint8_t>(std::clamp(level, 0, 10));
+}
+
 static int NormalizePadAxis(int16_t raw, int maxValue, bool invert) {
     int v = raw;
     if (invert)
@@ -212,6 +220,11 @@ void VirtualController::OnRumble(uint8_t largeMotor, uint8_t smallMotor) {
         m_rumbleFn(largeMotor, smallMotor);
 }
 
+void VirtualController::SetBatteryState(uint8_t levelPercent, uint8_t chargeState) {
+    m_ds4BatteryLevel = PercentToDs4BatteryLevel(levelPercent, chargeState);
+    m_ds4BatterySpecial = static_cast<uint8_t>(0x10 | m_ds4BatteryLevel);
+}
+
 void VirtualController::Update(const SteamControllerState& state) {
     if (!m_valid) return;
 
@@ -224,8 +237,8 @@ void VirtualController::Update(const SteamControllerState& state) {
         report.Report.wButtons = static_cast<USHORT>(DS4_BUTTON_DPAD_NONE);
         report.Report.bTriggerL = TriggerToByte(state.leftTrigger);
         report.Report.bTriggerR = TriggerToByte(state.rightTrigger);
-        report.Report.bBatteryLvl = 0x08;
-        report.Report.bBatteryLvlSpecial = 0x00;
+        report.Report.bBatteryLvl = m_ds4BatteryLevel;
+        report.Report.bBatteryLvlSpecial = m_ds4BatterySpecial;
 
         const uint8_t b0 = ButtonByte(state, 0);
         const uint8_t b1 = ButtonByte(state, 1);

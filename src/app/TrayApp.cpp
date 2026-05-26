@@ -114,6 +114,13 @@ LRESULT TrayApp::HandleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             m_controller->SetOutputMode(VirtualControllerMode::DualShock4);
             SaveSettings();
             break;
+        case IDM_HIDE_ORIGINAL:
+            m_controller->SetHideOriginalControllerEnabled(!m_controller->IsHideOriginalControllerEnabled());
+            SaveSettings();
+            break;
+        case IDM_REVEAL_ORIGINAL:
+            m_controller->RevealOriginalControllerNow();
+            break;
         case IDM_STARTUP:
             SetStartupEnabled(!IsStartupEnabled());
             break;
@@ -235,6 +242,7 @@ void TrayApp::LoadSettings() {
     m_controller->SetTrackpadMouseEnabled(readBool(L"TrackpadMouse",   false));
     m_controller->SetBackButtonsEnabled  (readBool(L"BackButtons",     false));
     m_controller->SetUseLeftTrackpad     (readBool(L"UseLeftTrackpad", false));
+    m_controller->SetHideOriginalControllerEnabled(readBool(L"HideOriginalController", true));
 
     DWORD outputMode = 0, outputModeSize = sizeof(outputMode);
     if (RegQueryValueExW(key, L"OutputMode", nullptr, nullptr,
@@ -263,6 +271,7 @@ void TrayApp::SaveSettings() {
     writeBool(L"TrackpadMouse",   m_controller->IsTrackpadMouseEnabled());
     writeBool(L"BackButtons",     m_controller->IsBackButtonsEnabled());
     writeBool(L"UseLeftTrackpad", m_controller->IsUseLeftTrackpad());
+    writeBool(L"HideOriginalController", m_controller->IsHideOriginalControllerEnabled());
     DWORD outputMode = m_controller->GetOutputMode() == VirtualControllerMode::DualShock4 ? 1u : 0u;
     RegSetValueExW(key, L"OutputMode", 0, REG_DWORD,
                    reinterpret_cast<const BYTE*>(&outputMode), sizeof(outputMode));
@@ -277,6 +286,8 @@ void TrayApp::ShowContextMenu() {
     bool backButtonsOn  = m_controller->IsBackButtonsEnabled();
     bool leftTrackpad   = m_controller->IsUseLeftTrackpad();
     bool startupOn      = IsStartupEnabled();
+    bool hideOriginal   = m_controller->IsHideOriginalControllerEnabled();
+    bool hidHideAvailable = m_controller->IsHidHideAvailable();
     VirtualControllerMode outputMode = m_controller->GetOutputMode();
 
     HMENU menu = CreatePopupMenu();
@@ -306,6 +317,15 @@ void TrayApp::ShowContextMenu() {
                 MF_STRING | (outputMode == VirtualControllerMode::DualShock4 ? MF_CHECKED : MF_UNCHECKED),
                 IDM_OUTPUT_DS4, L"DualShock 4");
     AppendMenuW(menu, MF_POPUP | MF_STRING, reinterpret_cast<UINT_PTR>(outputMenu), L"Output Mode");
+
+    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+
+    UINT hideFlags = MF_STRING | (hidHideAvailable ? MF_ENABLED : MF_GRAYED)
+                   | (hideOriginal ? MF_CHECKED : MF_UNCHECKED);
+    AppendMenuW(menu, hideFlags, IDM_HIDE_ORIGINAL, L"Hide Original Controller");
+
+    UINT revealFlags = MF_STRING | (hidHideAvailable ? MF_ENABLED : MF_GRAYED);
+    AppendMenuW(menu, revealFlags, IDM_REVEAL_ORIGINAL, L"Reveal Original Now");
 
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
 

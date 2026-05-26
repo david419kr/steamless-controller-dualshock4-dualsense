@@ -11,6 +11,7 @@ When **Steamless Mode** is active, the app disables the controller's built-in ke
 - System tray icon shows connection and mode status
 - **Steamless Mode** — disables lizard mode and exposes controller as an Xbox 360 or DualShock 4 gamepad
 - **DualShock 4 output mode** — forwards buttons, sticks, triggers, native gyro/accelerometer motion, touchpad contacts, and rumble
+- **Hide Original Controller** — optionally uses HidHide to hide the physical Steam Controller while Steamless Mode is active
 - **Trackpad Mouse** — use the right (or left) trackpad as a mouse cursor
 - **Back Buttons for Clicking** — map R4/R5 (or L4/L5) to left/right mouse click
 - **Use Left Trackpad Instead** — mirror all trackpad/back-button functionality to the left side for left-handed users
@@ -26,6 +27,7 @@ When **Steamless Mode** is active, the app disables the controller's built-in ke
 ### To run
 - Windows 10 or later (64-bit)
 - [ViGEmBus](https://github.com/nefarius/ViGEmBus/releases/latest) driver installed (1.22.0 or newer recommended for full DualShock 4 motion/touch support)
+- [HidHide](https://github.com/nefarius/HidHide) driver installed for automatic hiding of the physical controller (optional)
 - Steam Controller (VID `0x28DE` / PID `0x1302`)
 - Steam **closed** (Steam claims the controller when running)
 

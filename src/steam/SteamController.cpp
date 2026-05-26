@@ -1,4 +1,5 @@
 #include "SteamController.h"
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <cstring>
@@ -169,6 +170,10 @@ bool SteamController::IsStateReportId(uint8_t reportId) {
     return reportId == REPORT_STATE || reportId == REPORT_STATE_LEGACY;
 }
 
+bool SteamController::IsBatteryReportId(uint8_t reportId) {
+    return reportId == REPORT_BATTERY_STATUS;
+}
+
 bool SteamController::ParseStateReport(const uint8_t* buffer, size_t size, SteamControllerState& state) {
     if (!buffer || size < 30 || !IsStateReportId(buffer[0]))
         return false;
@@ -205,6 +210,18 @@ bool SteamController::ParseStateReport(const uint8_t* buffer, size_t size, Steam
         s.gyroZ = ReadS16LE(buffer + 44);
     }
 
+    state = s;
+    return true;
+}
+
+bool SteamController::ParseBatteryReport(const uint8_t* buffer, size_t size, SteamControllerBatteryState& state) {
+    if (!buffer || size < 3 || !IsBatteryReportId(buffer[0]))
+        return false;
+
+    SteamControllerBatteryState s{};
+    s.valid = true;
+    s.chargeState = buffer[1];
+    s.levelPercent = static_cast<uint8_t>(std::min<uint8_t>(buffer[2], 100));
     state = s;
     return true;
 }
