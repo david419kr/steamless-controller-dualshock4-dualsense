@@ -117,7 +117,7 @@ public:
     static constexpr uint8_t BTN_LB       = 0x08;  // bit 3
     static constexpr uint8_t BTN_RS_TOUCH  = 0x10;  // bit 4 — right stick capacitive touch
     static constexpr uint8_t BTN_TP_RT    = 0x20;  // bit 5 — right trackpad active (touch or click)
-    // bit 6 (0x40): TBD — possibly right trackpad physical click (hard press only)
+    static constexpr uint8_t BTN_TP_RT_CLICK = 0x40; // bit 6 — right trackpad hard press
     static constexpr uint8_t BTN_RT_FULL  = 0x80;  // bit 7 — right trigger fully pressed (digital threshold)
 
     // buf[05]       — flags byte
@@ -182,6 +182,8 @@ public:
     bool SetImuEnabled(bool enabled);
     void SetRumble(uint8_t largeMotor, uint8_t smallMotor);
     void SetDs4EnhancedRumble(uint8_t largeMotor, uint8_t smallMotor);
+    void SetTrackpadHaptics(bool leftTouch, bool rightTouch, bool leftClickPulse, bool rightClickPulse);
+    void ClearTrackpadHaptics();
     void MaintainRumble();
 
 private:
@@ -204,6 +206,11 @@ private:
     uint16_t        m_rumbleBoostLeft = 0;
     uint16_t        m_rumbleBoostRight = 0;
     std::chrono::steady_clock::time_point m_rumbleBoostUntil{};
+    uint16_t        m_trackpadTouchLeft = 0;
+    uint16_t        m_trackpadTouchRight = 0;
+    uint16_t        m_trackpadClickLeft = 0;
+    uint16_t        m_trackpadClickRight = 0;
+    std::chrono::steady_clock::time_point m_trackpadClickUntil{};
     std::chrono::steady_clock::time_point m_lastRumbleSent{};
     uint8_t         m_lastDs4LargeMotor = 0;
     uint8_t         m_lastDs4SmallMotor = 0;

@@ -5,6 +5,10 @@
 
 static std::unique_ptr<SteamController> g_ctrl;
 
+static uint8_t ButtonByte(const SteamControllerState& state, int index) {
+    return static_cast<uint8_t>((state.buttons >> (index * 8)) & 0xFF);
+}
+
 ControllerManager::ControllerManager(StateChangedFn onStateChanged)
     : m_onStateChanged(std::move(onStateChanged))
 {
@@ -69,6 +73,8 @@ void ControllerManager::DisableGameMode() {
     if (!m_gameModeActive) return;
     StopReadLoop();
     m_trackpad.Reset();
+    if (g_ctrl)
+        g_ctrl->ClearTrackpadHaptics();
     m_virtual.reset();
     g_ctrl->SetImuEnabled(false);
     g_ctrl->EnableLizardMode();
@@ -181,6 +187,11 @@ void ControllerManager::ApplyTrackpadRuntimeSettings() {
     if (!effectiveTrackpadMouse || !effectiveBackButtons)
         m_trackpad.Reset();
 
+    m_prevHapticLeftClick = false;
+    m_prevHapticRightClick = false;
+    if (g_ctrl && m_gameModeActive)
+        g_ctrl->ClearTrackpadHaptics();
+
     m_trackpad.SetTrackpadEnabled(effectiveTrackpadMouse);
     m_trackpad.SetBackButtonsEnabled(effectiveBackButtons);
     m_trackpad.SetUseLeftTrackpad(m_useLeftTrackpad);
@@ -189,6 +200,71 @@ void ControllerManager::ApplyTrackpadRuntimeSettings() {
         m_virtual->SetTrackpadMouseClaim(effectiveTrackpadMouse, m_useLeftTrackpad);
         m_virtual->SetTrackpadDpadClaim(dpadActive, m_trackpadDpadUseRight);
     }
+}
+
+void ControllerManager::UpdateTrackpadHaptics(const SteamControllerState& state) {
+    if (!g_ctrl)
+        return;
+
+    const uint8_t b2 = ButtonByte(state, 2);
+    const uint8_t b3 = ButtonByte(state, 3);
+
+    const bool rawRightTouching = (b2 & SteamController::BTN_TP_RT) != 0;
+    const bool rawLeftTouching = (b3 & SteamController::BTN_TP_LT) != 0;
+    const bool rawRightClick = (b2 & SteamController::BTN_TP_RT_CLICK) != 0;
+    const bool rawLeftClick = (b3 & SteamController::BTN_TP_LT_CLICK) != 0;
+
+    const bool dpadActive = IsTrackpadDpadActive();
+    const bool dpadLeft = dpadActive && !m_trackpadDpadUseRight;
+    const bool dpadRight = dpadActive && m_trackpadDpadUseRight;
+    const bool dpadLocksMouse = ShouldTrackpadDpadLockMouse();
+    const bool mouseActive = m_trackpadMouseEnabled && !dpadLocksMouse;
+    const bool mouseLeft = mouseActive && m_useLeftTrackpad;
+    const bool mouseRight = mouseActive && !m_useLeftTrackpad;
+
+    bool leftTouchHaptic = false;
+    bool rightTouchHaptic = false;
+    bool leftClickEligible = false;
+    bool rightClickEligible = false;
+
+    if (mouseLeft) {
+        leftTouchHaptic = rawLeftTouching;
+        leftClickEligible = true;
+    }
+    if (mouseRight) {
+        rightTouchHaptic = rawRightTouching;
+        rightClickEligible = true;
+    }
+
+    if (m_outputMode == VirtualControllerMode::DualShock4) {
+        const bool nativeLeftTouchpad = !mouseLeft && !dpadLeft;
+        const bool nativeRightTouchpad = !mouseRight && !dpadRight;
+
+        if (nativeLeftTouchpad) {
+            leftTouchHaptic = leftTouchHaptic || rawLeftTouching;
+            leftClickEligible = true;
+        }
+        if (nativeRightTouchpad) {
+            rightTouchHaptic = rightTouchHaptic || rawRightTouching;
+            rightClickEligible = true;
+        }
+    }
+
+    if (dpadLeft)
+        leftClickEligible = true;
+    if (dpadRight)
+        rightClickEligible = true;
+
+    const bool leftClickNow = leftClickEligible && rawLeftClick;
+    const bool rightClickNow = rightClickEligible && rawRightClick;
+    const bool leftClickPulse = leftClickNow && !m_prevHapticLeftClick;
+    const bool rightClickPulse = rightClickNow && !m_prevHapticRightClick;
+
+    m_prevHapticLeftClick = leftClickNow;
+    m_prevHapticRightClick = rightClickNow;
+
+    g_ctrl->SetTrackpadHaptics(leftTouchHaptic, rightTouchHaptic,
+                               leftClickPulse, rightClickPulse);
 }
 
 void ControllerManager::TryOpen() {
@@ -243,6 +319,7 @@ void ControllerManager::ReadLoop() {
         SteamControllerState state;
         if (!SteamController::ParseStateReport(buf, n, state)) continue;
         if (m_virtual) m_virtual->Update(state);
+        UpdateTrackpadHaptics(state);
         m_trackpad.Update(buf, n);
     }
 }

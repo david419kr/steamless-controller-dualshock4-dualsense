@@ -52,6 +52,7 @@ private:
     void StartReadLoop();
     void StopReadLoop();
     void ReadLoop();
+    void UpdateTrackpadHaptics(const SteamControllerState& state);
     void ApplyTrackpadRuntimeSettings();
     bool IsTrackpadDpadActive() const;
     bool ShouldTrackpadDpadLockMouse() const;
@@ -67,6 +68,8 @@ private:
     bool                               m_useLeftTrackpad      = false;
     bool                               m_trackpadDpadEnabled  = false;
     bool                               m_trackpadDpadUseRight = false;
+    bool                               m_prevHapticLeftClick  = false;
+    bool                               m_prevHapticRightClick = false;
     bool                               m_hideOriginalController = true;
     bool                               m_originalHidden       = false;
     VirtualControllerMode              m_outputMode           = VirtualControllerMode::Xbox360;
