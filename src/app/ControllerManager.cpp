@@ -10,6 +10,31 @@ static uint8_t ButtonByte(const SteamControllerState& state, int index) {
     return static_cast<uint8_t>((state.buttons >> (index * 8)) & 0xFF);
 }
 
+static uint8_t TrackpadDpadMask(int16_t x, int16_t y, bool active) {
+    if (!active)
+        return 0;
+
+    const int ix = static_cast<int>(x);
+    const int iy = static_cast<int>(y);
+    const int ax = std::abs(ix);
+    const int ay = std::abs(iy);
+    constexpr int DEADZONE = 9000;
+
+    if (ax < DEADZONE && ay < DEADZONE)
+        return 0;
+
+    uint8_t mask = 0;
+    if (iy > DEADZONE)
+        mask |= 0x01; // up
+    if (ix > DEADZONE)
+        mask |= 0x02; // right
+    if (iy < -DEADZONE)
+        mask |= 0x04; // down
+    if (ix < -DEADZONE)
+        mask |= 0x08; // left
+    return mask;
+}
+
 ControllerManager::ControllerManager(StateChangedFn onStateChanged)
     : m_onStateChanged(std::move(onStateChanged))
 {
@@ -190,6 +215,8 @@ void ControllerManager::ApplyTrackpadRuntimeSettings() {
 
     m_prevHapticLeftClick = false;
     m_prevHapticRightClick = false;
+    m_prevHapticLeftDpadMask = 0;
+    m_prevHapticRightDpadMask = 0;
     m_prevHapticLeftTouch = false;
     m_prevHapticRightTouch = false;
     if (g_ctrl && m_gameModeActive)
@@ -262,9 +289,23 @@ void ControllerManager::UpdateTrackpadHaptics(const SteamControllerState& state)
     const bool rightClickNow = rightClickEligible && rawRightClick;
     const bool leftClickPulse = leftClickNow != m_prevHapticLeftClick;
     const bool rightClickPulse = rightClickNow != m_prevHapticRightClick;
+    const uint8_t leftDpadMask = dpadLeft
+        ? TrackpadDpadMask(state.leftPadX, state.leftPadY, leftClickNow)
+        : 0;
+    const uint8_t rightDpadMask = dpadRight
+        ? TrackpadDpadMask(state.rightPadX, state.rightPadY, rightClickNow)
+        : 0;
+    const bool leftDpadDirectionPulse =
+        dpadLeft && leftClickNow && !leftClickPulse &&
+        leftDpadMask != m_prevHapticLeftDpadMask;
+    const bool rightDpadDirectionPulse =
+        dpadRight && rightClickNow && !rightClickPulse &&
+        rightDpadMask != m_prevHapticRightDpadMask;
 
     m_prevHapticLeftClick = leftClickNow;
     m_prevHapticRightClick = rightClickNow;
+    m_prevHapticLeftDpadMask = leftClickNow ? leftDpadMask : 0;
+    m_prevHapticRightDpadMask = rightClickNow ? rightDpadMask : 0;
 
     constexpr int MOVE_PULSE_THRESHOLD = 1800;
     constexpr auto MOVE_PULSE_INTERVAL = std::chrono::milliseconds(22);
@@ -303,21 +344,24 @@ void ControllerManager::UpdateTrackpadHaptics(const SteamControllerState& state)
         prevActive = true;
     };
 
-    if (leftClickPulse) {
+    const bool leftStrongPulse = leftClickPulse || leftDpadDirectionPulse;
+    const bool rightStrongPulse = rightClickPulse || rightDpadDirectionPulse;
+
+    if (leftStrongPulse) {
         g_ctrl->PulseTrackpadHaptic(true, true);
         m_lastHapticLeftPulse = now;
     }
-    if (rightClickPulse) {
+    if (rightStrongPulse) {
         g_ctrl->PulseTrackpadHaptic(false, true);
         m_lastHapticRightPulse = now;
     }
 
     pulseTouchIfMoved(true, leftTouchHaptic, state.leftPadX, state.leftPadY,
                       m_prevHapticLeftTouch, m_prevHapticLeftX, m_prevHapticLeftY,
-                      m_lastHapticLeftPulse, leftClickPulse);
+                      m_lastHapticLeftPulse, leftStrongPulse);
     pulseTouchIfMoved(false, rightTouchHaptic, state.rightPadX, state.rightPadY,
                       m_prevHapticRightTouch, m_prevHapticRightX, m_prevHapticRightY,
-                      m_lastHapticRightPulse, rightClickPulse);
+                      m_lastHapticRightPulse, rightStrongPulse);
 }
 
 void ControllerManager::TryOpen() {

@@ -2,6 +2,7 @@
 #include "HidHideController.h"
 #include "TrackpadMouse.h"
 #include "VirtualController.h"
+#include <cstdint>
 #include <functional>
 #include <thread>
 #include <atomic>
@@ -71,6 +72,8 @@ private:
     bool                               m_trackpadDpadUseRight = false;
     bool                               m_prevHapticLeftClick  = false;
     bool                               m_prevHapticRightClick = false;
+    uint8_t                            m_prevHapticLeftDpadMask = 0;
+    uint8_t                            m_prevHapticRightDpadMask = 0;
     bool                               m_prevHapticLeftTouch  = false;
     bool                               m_prevHapticRightTouch = false;
     int16_t                            m_prevHapticLeftX      = 0;
