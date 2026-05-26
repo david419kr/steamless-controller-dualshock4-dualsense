@@ -181,18 +181,31 @@ public:
 
     bool SetImuEnabled(bool enabled);
     void SetRumble(uint8_t largeMotor, uint8_t smallMotor);
+    void SetDs4EnhancedRumble(uint8_t largeMotor, uint8_t smallMotor);
     void MaintainRumble();
 
 private:
+    struct RumbleFrame {
+        uint16_t left = 0;
+        uint16_t right = 0;
+    };
+
     void HeartbeatLoop();
-    bool SendRumbleOutput(uint16_t largeMotor, uint16_t smallMotor);
+    RumbleFrame CurrentRumbleFrameLocked(std::chrono::steady_clock::time_point now) const;
+    bool SendRumbleOutput(uint16_t leftSpeed, uint16_t rightSpeed);
 
     HidDevice       m_device;
     std::thread     m_heartbeat;
     std::atomic<bool> m_running{false};
     std::mutex      m_writeMutex;
     std::mutex      m_rumbleMutex;
-    uint16_t        m_rumbleLarge = 0;
-    uint16_t        m_rumbleSmall = 0;
+    uint16_t        m_rumbleBaseLeft = 0;
+    uint16_t        m_rumbleBaseRight = 0;
+    uint16_t        m_rumbleBoostLeft = 0;
+    uint16_t        m_rumbleBoostRight = 0;
+    std::chrono::steady_clock::time_point m_rumbleBoostUntil{};
     std::chrono::steady_clock::time_point m_lastRumbleSent{};
+    uint8_t         m_lastDs4LargeMotor = 0;
+    uint8_t         m_lastDs4SmallMotor = 0;
+    bool            m_hasDs4RumbleState = false;
 };

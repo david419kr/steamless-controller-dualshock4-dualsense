@@ -37,8 +37,13 @@ void ControllerManager::EnableGameMode() {
 
     m_virtual = std::make_unique<VirtualController>(
         m_outputMode,
-        [](uint8_t largeMotor, uint8_t smallMotor) {
-            if (g_ctrl) g_ctrl->SetRumble(largeMotor, smallMotor);
+        [mode = m_outputMode](uint8_t largeMotor, uint8_t smallMotor) {
+            if (!g_ctrl)
+                return;
+            if (mode == VirtualControllerMode::DualShock4)
+                g_ctrl->SetDs4EnhancedRumble(largeMotor, smallMotor);
+            else
+                g_ctrl->SetRumble(largeMotor, smallMotor);
         });
     if (!m_virtual->IsValid()) {
         bool missing = m_virtual->IsDriverMissing();
