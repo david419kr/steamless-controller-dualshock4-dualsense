@@ -76,6 +76,11 @@ public:
     static constexpr uint8_t CMD_SET_SETTINGS           = 0x87;
     static constexpr uint8_t CMD_GET_SETTINGS           = 0x89;
 
+    // Triton output report IDs.
+    static constexpr uint8_t OUT_HAPTIC_RUMBLE          = 0x80;
+    static constexpr uint8_t OUT_HAPTIC_PULSE           = 0x81;
+    static constexpr uint8_t OUT_HAPTIC_COMMAND         = 0x82;
+
     // Setting key IDs (go in the payload of CMD_SET_SETTINGS)
     static constexpr uint8_t SETTING_RIGHT_TRACKPAD_MODE = 0x07;
     static constexpr uint8_t SETTING_LEFT_TRACKPAD_MODE  = 0x08;
@@ -117,7 +122,7 @@ public:
     static constexpr uint8_t BTN_LB       = 0x08;  // bit 3
     static constexpr uint8_t BTN_RS_TOUCH  = 0x10;  // bit 4 — right stick capacitive touch
     static constexpr uint8_t BTN_TP_RT    = 0x20;  // bit 5 — right trackpad active (touch or click)
-    // bit 6 (0x40): TBD — possibly right trackpad physical click (hard press only)
+    static constexpr uint8_t BTN_TP_RT_CLICK = 0x40; // bit 6 — right trackpad hard press
     static constexpr uint8_t BTN_RT_FULL  = 0x80;  // bit 7 — right trigger fully pressed (digital threshold)
 
     // buf[05]       — flags byte
@@ -181,18 +186,35 @@ public:
 
     bool SetImuEnabled(bool enabled);
     void SetRumble(uint8_t largeMotor, uint8_t smallMotor);
+    void SetDs4EnhancedRumble(uint8_t largeMotor, uint8_t smallMotor);
+    void PulseTrackpadHaptic(bool left, bool strongClick);
+    void ClearTrackpadHaptics();
     void MaintainRumble();
 
 private:
+    struct RumbleFrame {
+        uint16_t left = 0;
+        uint16_t right = 0;
+    };
+
     void HeartbeatLoop();
-    bool SendRumbleOutput(uint16_t largeMotor, uint16_t smallMotor);
+    RumbleFrame CurrentRumbleFrameLocked(std::chrono::steady_clock::time_point now) const;
+    bool SendRumbleOutput(uint16_t leftSpeed, uint16_t rightSpeed);
+    bool SendTrackpadPulseOutput(uint8_t side, uint16_t onUs, uint16_t offUs, uint16_t repeatCount, int16_t gainDb);
+    bool SendTrackpadCommandOutput(uint8_t side, uint8_t command, int8_t gainDb);
 
     HidDevice       m_device;
     std::thread     m_heartbeat;
     std::atomic<bool> m_running{false};
     std::mutex      m_writeMutex;
     std::mutex      m_rumbleMutex;
-    uint16_t        m_rumbleLarge = 0;
-    uint16_t        m_rumbleSmall = 0;
+    uint16_t        m_rumbleBaseLeft = 0;
+    uint16_t        m_rumbleBaseRight = 0;
+    uint16_t        m_rumbleBoostLeft = 0;
+    uint16_t        m_rumbleBoostRight = 0;
+    std::chrono::steady_clock::time_point m_rumbleBoostUntil{};
     std::chrono::steady_clock::time_point m_lastRumbleSent{};
+    uint8_t         m_lastDs4LargeMotor = 0;
+    uint8_t         m_lastDs4SmallMotor = 0;
+    bool            m_hasDs4RumbleState = false;
 };

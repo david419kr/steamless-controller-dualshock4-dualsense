@@ -1,9 +1,11 @@
 #pragma once
 #include "TrackpadMouse.h"
 #include "VirtualController.h"
+#include <cstdint>
 #include <functional>
 #include <thread>
 #include <atomic>
+#include <chrono>
 #include <memory>
 
 // Manages the Steam Controller lifecycle: device discovery, lizard mode
@@ -47,6 +49,7 @@ private:
     void StartReadLoop();
     void StopReadLoop();
     void ReadLoop();
+    void UpdateTrackpadHaptics(const SteamControllerState& state);
     void ApplyTrackpadRuntimeSettings();
     bool IsTrackpadDpadActive() const;
     bool ShouldTrackpadDpadLockMouse() const;
@@ -62,6 +65,18 @@ private:
     bool                               m_useLeftTrackpad      = false;
     bool                               m_trackpadDpadEnabled  = false;
     bool                               m_trackpadDpadUseRight = false;
+    bool                               m_prevHapticLeftClick  = false;
+    bool                               m_prevHapticRightClick = false;
+    uint8_t                            m_prevHapticLeftDpadMask = 0;
+    uint8_t                            m_prevHapticRightDpadMask = 0;
+    bool                               m_prevHapticLeftTouch  = false;
+    bool                               m_prevHapticRightTouch = false;
+    int16_t                            m_prevHapticLeftX      = 0;
+    int16_t                            m_prevHapticLeftY      = 0;
+    int16_t                            m_prevHapticRightX     = 0;
+    int16_t                            m_prevHapticRightY     = 0;
+    std::chrono::steady_clock::time_point m_lastHapticLeftPulse{};
+    std::chrono::steady_clock::time_point m_lastHapticRightPulse{};
     VirtualControllerMode              m_outputMode           = VirtualControllerMode::Xbox360;
     std::unique_ptr<VirtualController> m_virtual;
     TrackpadMouse                      m_trackpad;

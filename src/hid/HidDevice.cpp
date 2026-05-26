@@ -156,12 +156,18 @@ void HidDevice::Close() {
 // ---------------------------------------------------------------------------
 
 bool HidDevice::SendOutputReport(const uint8_t* data, size_t size) {
-    // HidD_SetOutputReport requires the buffer to be exactly OutputReportByteLength.
-    // Pad with zeros if the caller provided a shorter buffer (e.g. a 7-byte report
-    // when the device's max output report is 64 bytes).
+    // Triton haptic output reports are normal interrupt OUT writes. Some HID
+    // stacks require the full declared report length, so try the compact report
+    // first and then a zero-padded write before falling back to SET_REPORT.
+    if (WriteOutputReportOnce(data, size))
+        return true;
+
     if (size < m_outputReportLen) {
         std::vector<uint8_t> padded(m_outputReportLen, 0);
         std::memcpy(padded.data(), data, size);
+        if (WriteOutputReportOnce(padded.data(), padded.size()))
+            return true;
+
         BOOLEAN ok = HidD_SetOutputReport(m_handle, padded.data(), m_outputReportLen);
         if (!ok)
             printf("SendOutputReport(0x%02X) failed: error %lu\n", data[0], GetLastError());
@@ -174,6 +180,35 @@ bool HidDevice::SendOutputReport(const uint8_t* data, size_t size) {
     if (!ok)
         printf("SendOutputReport(0x%02X) failed: error %lu\n", data[0], GetLastError());
     return ok == TRUE;
+}
+
+bool HidDevice::WriteOutputReportOnce(const uint8_t* data, size_t size) {
+    if (!data || size == 0 || m_handle == INVALID_HANDLE_VALUE)
+        return false;
+
+    HANDLE event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    if (event == INVALID_HANDLE_VALUE)
+        return false;
+
+    OVERLAPPED ov{};
+    ov.hEvent = event;
+    DWORD bytesWritten = 0;
+    bool ok = false;
+
+    if (WriteFile(m_handle, data, static_cast<DWORD>(size), &bytesWritten, &ov)) {
+        ok = true;
+    } else if (GetLastError() == ERROR_IO_PENDING) {
+        DWORD wait = WaitForSingleObject(event, 100);
+        if (wait == WAIT_OBJECT_0) {
+            ok = GetOverlappedResult(m_handle, &ov, &bytesWritten, FALSE) == TRUE;
+        } else {
+            CancelIoEx(m_handle, &ov);
+            GetOverlappedResult(m_handle, &ov, &bytesWritten, TRUE);
+        }
+    }
+
+    CloseHandle(event);
+    return ok;
 }
 
 bool HidDevice::SendFeatureReport(const uint8_t* data, size_t size) {

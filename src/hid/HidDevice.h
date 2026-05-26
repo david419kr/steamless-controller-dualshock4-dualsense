@@ -40,6 +40,8 @@ public:
     size_t ReadInputReport(uint8_t* buffer, size_t size, uint32_t timeoutMs = 1000);
 
 private:
+    bool WriteOutputReportOnce(const uint8_t* data, size_t size);
+
     HANDLE m_handle           = INVALID_HANDLE_VALUE;
     HANDLE m_event            = INVALID_HANDLE_VALUE;
     ULONG  m_outputReportLen  = 64;

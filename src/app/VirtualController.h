@@ -34,6 +34,10 @@ public:
     void OnRumble(uint8_t largeMotor, uint8_t smallMotor);
 
 private:
+    void StartDs4OutputThread();
+    void StopDs4OutputThread();
+    void Ds4OutputLoop();
+
     void* m_client       = nullptr;
     void* m_target       = nullptr;
     VirtualControllerMode m_mode = VirtualControllerMode::Xbox360;
