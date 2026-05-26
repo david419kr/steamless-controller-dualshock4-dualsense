@@ -126,6 +126,217 @@ static USHORT XusbDpadButtons(DS4_DPAD_DIRECTIONS direction) {
     }
 }
 
+static uint8_t Ds4DpadMask(DS4_DPAD_DIRECTIONS direction) {
+    switch (direction) {
+    case DS4_BUTTON_DPAD_NORTH:
+        return 0x01;
+    case DS4_BUTTON_DPAD_NORTHEAST:
+        return 0x01 | 0x02;
+    case DS4_BUTTON_DPAD_EAST:
+        return 0x02;
+    case DS4_BUTTON_DPAD_SOUTHEAST:
+        return 0x02 | 0x04;
+    case DS4_BUTTON_DPAD_SOUTH:
+        return 0x04;
+    case DS4_BUTTON_DPAD_SOUTHWEST:
+        return 0x04 | 0x08;
+    case DS4_BUTTON_DPAD_WEST:
+        return 0x08;
+    case DS4_BUTTON_DPAD_NORTHWEST:
+        return 0x08 | 0x01;
+    default:
+        return 0;
+    }
+}
+
+static DS4_DPAD_DIRECTIONS Ds4DpadFromMask(uint8_t mask) {
+    bool north = (mask & 0x01) != 0;
+    bool east = (mask & 0x02) != 0;
+    bool south = (mask & 0x04) != 0;
+    bool west = (mask & 0x08) != 0;
+
+    if (north && south) {
+        north = false;
+        south = false;
+    }
+    if (east && west) {
+        east = false;
+        west = false;
+    }
+
+    if (north && east) return DS4_BUTTON_DPAD_NORTHEAST;
+    if (east && south) return DS4_BUTTON_DPAD_SOUTHEAST;
+    if (south && west) return DS4_BUTTON_DPAD_SOUTHWEST;
+    if (west && north) return DS4_BUTTON_DPAD_NORTHWEST;
+    if (north) return DS4_BUTTON_DPAD_NORTH;
+    if (east) return DS4_BUTTON_DPAD_EAST;
+    if (south) return DS4_BUTTON_DPAD_SOUTH;
+    if (west) return DS4_BUTTON_DPAD_WEST;
+    return DS4_BUTTON_DPAD_NONE;
+}
+
+static bool BackButtonPressed(const SteamControllerState& state, BackButtonId id) {
+    const uint8_t b0 = ButtonByte(state, 0);
+    const uint8_t b1 = ButtonByte(state, 1);
+    const uint8_t b2 = ButtonByte(state, 2);
+
+    switch (id) {
+    case BackButtonId::L4:
+        return (b2 & SteamController::BTN_L4) != 0;
+    case BackButtonId::L5:
+        return (b2 & SteamController::BTN_L5) != 0;
+    case BackButtonId::R4:
+        return (b0 & SteamController::BTN_R4) != 0;
+    case BackButtonId::R5:
+        return (b1 & SteamController::BTN_R5) != 0;
+    default:
+        return false;
+    }
+}
+
+static void ApplyBackButtonActionXusb(BackButtonAction action, XUSB_REPORT& report) {
+    switch (action) {
+    case BackButtonAction::DpadUp:
+        report.wButtons |= XUSB_GAMEPAD_DPAD_UP;
+        break;
+    case BackButtonAction::DpadDown:
+        report.wButtons |= XUSB_GAMEPAD_DPAD_DOWN;
+        break;
+    case BackButtonAction::DpadLeft:
+        report.wButtons |= XUSB_GAMEPAD_DPAD_LEFT;
+        break;
+    case BackButtonAction::DpadRight:
+        report.wButtons |= XUSB_GAMEPAD_DPAD_RIGHT;
+        break;
+    case BackButtonAction::South:
+        report.wButtons |= XUSB_GAMEPAD_A;
+        break;
+    case BackButtonAction::East:
+        report.wButtons |= XUSB_GAMEPAD_B;
+        break;
+    case BackButtonAction::West:
+        report.wButtons |= XUSB_GAMEPAD_X;
+        break;
+    case BackButtonAction::North:
+        report.wButtons |= XUSB_GAMEPAD_Y;
+        break;
+    case BackButtonAction::LeftBumper:
+        report.wButtons |= XUSB_GAMEPAD_LEFT_SHOULDER;
+        break;
+    case BackButtonAction::RightBumper:
+        report.wButtons |= XUSB_GAMEPAD_RIGHT_SHOULDER;
+        break;
+    case BackButtonAction::LeftTrigger:
+        report.bLeftTrigger = 255;
+        break;
+    case BackButtonAction::RightTrigger:
+        report.bRightTrigger = 255;
+        break;
+    case BackButtonAction::LeftStick:
+        report.wButtons |= XUSB_GAMEPAD_LEFT_THUMB;
+        break;
+    case BackButtonAction::RightStick:
+        report.wButtons |= XUSB_GAMEPAD_RIGHT_THUMB;
+        break;
+    case BackButtonAction::Back:
+        report.wButtons |= XUSB_GAMEPAD_BACK;
+        break;
+    case BackButtonAction::Start:
+        report.wButtons |= XUSB_GAMEPAD_START;
+        break;
+    case BackButtonAction::Guide:
+        report.wButtons |= XUSB_GAMEPAD_GUIDE;
+        break;
+    default:
+        break;
+    }
+}
+
+static void ApplyBackButtonActionDs4(BackButtonAction action,
+                                     DS4_REPORT_EX& report,
+                                     uint8_t& dpadMask) {
+    switch (action) {
+    case BackButtonAction::DpadUp:
+        dpadMask |= 0x01;
+        break;
+    case BackButtonAction::DpadDown:
+        dpadMask |= 0x04;
+        break;
+    case BackButtonAction::DpadLeft:
+        dpadMask |= 0x08;
+        break;
+    case BackButtonAction::DpadRight:
+        dpadMask |= 0x02;
+        break;
+    case BackButtonAction::South:
+        report.Report.wButtons |= DS4_BUTTON_CROSS;
+        break;
+    case BackButtonAction::East:
+        report.Report.wButtons |= DS4_BUTTON_CIRCLE;
+        break;
+    case BackButtonAction::West:
+        report.Report.wButtons |= DS4_BUTTON_SQUARE;
+        break;
+    case BackButtonAction::North:
+        report.Report.wButtons |= DS4_BUTTON_TRIANGLE;
+        break;
+    case BackButtonAction::LeftBumper:
+        report.Report.wButtons |= DS4_BUTTON_SHOULDER_LEFT;
+        break;
+    case BackButtonAction::RightBumper:
+        report.Report.wButtons |= DS4_BUTTON_SHOULDER_RIGHT;
+        break;
+    case BackButtonAction::LeftTrigger:
+        report.Report.bTriggerL = 255;
+        report.Report.wButtons |= DS4_BUTTON_TRIGGER_LEFT;
+        break;
+    case BackButtonAction::RightTrigger:
+        report.Report.bTriggerR = 255;
+        report.Report.wButtons |= DS4_BUTTON_TRIGGER_RIGHT;
+        break;
+    case BackButtonAction::LeftStick:
+        report.Report.wButtons |= DS4_BUTTON_THUMB_LEFT;
+        break;
+    case BackButtonAction::RightStick:
+        report.Report.wButtons |= DS4_BUTTON_THUMB_RIGHT;
+        break;
+    case BackButtonAction::Back:
+        report.Report.wButtons |= DS4_BUTTON_SHARE;
+        break;
+    case BackButtonAction::Start:
+        report.Report.wButtons |= DS4_BUTTON_OPTIONS;
+        break;
+    case BackButtonAction::Guide:
+        report.Report.bSpecial |= DS4_SPECIAL_BUTTON_PS;
+        break;
+    default:
+        break;
+    }
+}
+
+static void ApplyBackButtonMappingsXusb(const SteamControllerState& state,
+                                        const BackButtonMappings& mappings,
+                                        XUSB_REPORT& report) {
+    for (uint8_t i = 0; i < static_cast<uint8_t>(BackButtonId::Count); ++i) {
+        const auto id = static_cast<BackButtonId>(i);
+        const BackButtonAction action = mappings.Get(id);
+        if (action != BackButtonAction::None && BackButtonPressed(state, id))
+            ApplyBackButtonActionXusb(action, report);
+    }
+}
+
+static void ApplyBackButtonMappingsDs4(const SteamControllerState& state,
+                                       const BackButtonMappings& mappings,
+                                       DS4_REPORT_EX& report,
+                                       uint8_t& dpadMask) {
+    for (uint8_t i = 0; i < static_cast<uint8_t>(BackButtonId::Count); ++i) {
+        const auto id = static_cast<BackButtonId>(i);
+        const BackButtonAction action = mappings.Get(id);
+        if (action != BackButtonAction::None && BackButtonPressed(state, id))
+            ApplyBackButtonActionDs4(action, report, dpadMask);
+    }
+}
+
 static bool ParseDs4OutputRumble(const DS4_OUTPUT_BUFFER& output,
                                  uint8_t& largeMotor,
                                  uint8_t& smallMotor) {
@@ -148,7 +359,8 @@ static bool ParseDs4OutputRumble(const DS4_OUTPUT_BUFFER& output,
 
 static XUSB_REPORT TranslateXusb(const SteamControllerState& state,
                                   bool trackpadDpadEnabled,
-                                  bool useRightTrackpadForDpad) {
+                                  bool useRightTrackpadForDpad,
+                                  const BackButtonMappings& backButtonMappings) {
     XUSB_REPORT r{};
 
     const uint8_t b0 = ButtonByte(state, 0);
@@ -199,6 +411,8 @@ static XUSB_REPORT TranslateXusb(const SteamControllerState& state,
     r.sThumbLY = state.leftStickY;
     r.sThumbRX = state.rightStickX;
     r.sThumbRY = state.rightStickY;
+
+    ApplyBackButtonMappingsXusb(state, backButtonMappings, r);
 
     return r;
 }
@@ -345,8 +559,24 @@ void VirtualController::SetTrackpadDpadClaim(bool enabled, bool useRightTrackpad
     m_useRightTrackpadForDpad = useRightTrackpad;
 }
 
+void VirtualController::SetBackButtonMappings(const BackButtonMappings& mappings) {
+    for (uint8_t i = 0; i < static_cast<uint8_t>(BackButtonId::Count); ++i) {
+        const auto id = static_cast<BackButtonId>(i);
+        m_backButtonMappings[i].store(static_cast<uint8_t>(mappings.Get(id)),
+                                      std::memory_order_relaxed);
+    }
+}
+
 void VirtualController::Update(const SteamControllerState& state) {
     if (!m_valid) return;
+
+    BackButtonMappings backButtonMappings;
+    for (uint8_t i = 0; i < static_cast<uint8_t>(BackButtonId::Count); ++i) {
+        const auto id = static_cast<BackButtonId>(i);
+        const auto action = static_cast<BackButtonAction>(
+            m_backButtonMappings[i].load(std::memory_order_relaxed));
+        backButtonMappings.Set(id, action);
+    }
 
     if (m_mode == VirtualControllerMode::DualShock4) {
         DS4_REPORT_EX report{};
@@ -380,8 +610,7 @@ void VirtualController::Update(const SteamControllerState& state) {
                 dpad = trackpadDpad;
         }
 
-        report.Report.wButtons &= ~0xF;
-        report.Report.wButtons |= static_cast<USHORT>(dpad);
+        uint8_t dpadMask = Ds4DpadMask(dpad);
 
         if (b0 & SteamController::BTN_A) report.Report.wButtons |= DS4_BUTTON_CROSS;
         if (b0 & SteamController::BTN_B) report.Report.wButtons |= DS4_BUTTON_CIRCLE;
@@ -396,6 +625,10 @@ void VirtualController::Update(const SteamControllerState& state) {
         if (report.Report.bTriggerL > 0) report.Report.wButtons |= DS4_BUTTON_TRIGGER_LEFT;
         if (report.Report.bTriggerR > 0) report.Report.wButtons |= DS4_BUTTON_TRIGGER_RIGHT;
         if (b2 & SteamController::BTN_STEAM) report.Report.bSpecial |= DS4_SPECIAL_BUTTON_PS;
+
+        ApplyBackButtonMappingsDs4(state, backButtonMappings, report, dpadMask);
+        report.Report.wButtons &= ~0xF;
+        report.Report.wButtons |= static_cast<USHORT>(Ds4DpadFromMask(dpadMask));
 
         if (state.hasImu) {
             if (!m_hasLastImuTimestamp || state.imuTimestamp != m_lastImuTimestamp) {
@@ -459,7 +692,9 @@ void VirtualController::Update(const SteamControllerState& state) {
         return;
     }
 
-    XUSB_REPORT report = TranslateXusb(state, m_trackpadDpadEnabled, m_useRightTrackpadForDpad);
+    XUSB_REPORT report = TranslateXusb(state, m_trackpadDpadEnabled,
+                                       m_useRightTrackpadForDpad,
+                                       backButtonMappings);
     vigem_target_x360_update(static_cast<PVIGEM_CLIENT>(m_client),
                              static_cast<PVIGEM_TARGET>(m_target),
                              report);

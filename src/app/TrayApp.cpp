@@ -8,6 +8,33 @@
 static TrayApp* g_app = nullptr;
 
 static constexpr wchar_t WNDCLASS_NAME[] = L"SteamlessControllerTray";
+static constexpr wchar_t BACKBUTTON_WNDCLASS_NAME[] = L"SteamlessControllerBackButtonMappings";
+static constexpr UINT BACKMAP_L4_ID = 2001;
+static constexpr UINT BACKMAP_L5_ID = 2002;
+static constexpr UINT BACKMAP_R4_ID = 2003;
+static constexpr UINT BACKMAP_R5_ID = 2004;
+
+static bool IsBackButtonComboId(UINT id) {
+    return id >= BACKMAP_L4_ID && id <= BACKMAP_R5_ID;
+}
+
+static BackButtonId BackButtonIdFromComboId(UINT id) {
+    switch (id) {
+    case BACKMAP_L4_ID: return BackButtonId::L4;
+    case BACKMAP_L5_ID: return BackButtonId::L5;
+    case BACKMAP_R4_ID: return BackButtonId::R4;
+    case BACKMAP_R5_ID: return BackButtonId::R5;
+    default: return BackButtonId::L4;
+    }
+}
+
+static size_t BackButtonIndex(BackButtonId id) {
+    return static_cast<size_t>(id);
+}
+
+static bool IsValidBackButtonAction(DWORD value) {
+    return value <= static_cast<DWORD>(BackButtonAction::Guide);
+}
 
 TrayApp::TrayApp() {
     g_app = this;
@@ -30,6 +57,15 @@ bool TrayApp::Init(HINSTANCE hInstance) {
     wc.hInstance     = hInstance;
     wc.lpszClassName = WNDCLASS_NAME;
     if (!RegisterClassExW(&wc)) return false;
+
+    WNDCLASSEXW mappingWc{};
+    mappingWc.cbSize        = sizeof(mappingWc);
+    mappingWc.lpfnWndProc   = WndProc;
+    mappingWc.hInstance     = hInstance;
+    mappingWc.hCursor       = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512));
+    mappingWc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
+    mappingWc.lpszClassName = BACKBUTTON_WNDCLASS_NAME;
+    if (!RegisterClassExW(&mappingWc)) return false;
 
     // Message-only window — invisible, never shown.
     m_hwnd = CreateWindowExW(0, WNDCLASS_NAME, L"SteamlessController",
@@ -87,6 +123,11 @@ LRESULT TrayApp::HandleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         return 0;
 
     case WM_COMMAND:
+        if (IsBackButtonComboId(LOWORD(wp)) && HIWORD(wp) == CBN_SELCHANGE) {
+            OnBackButtonMappingChanged(LOWORD(wp));
+            return 0;
+        }
+
         switch (LOWORD(wp)) {
         case IDM_TOGGLE:
             if (m_controller->IsGameModeActive())
@@ -101,6 +142,9 @@ LRESULT TrayApp::HandleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         case IDM_BACKBUTTONS:
             m_controller->SetBackButtonsEnabled(!m_controller->IsBackButtonsEnabled());
             SaveSettings();
+            break;
+        case IDM_BACKBUTTON_MAPPINGS:
+            ShowBackButtonMappingWindow();
             break;
         case IDM_LEFT_TRACKPAD:
             m_controller->SetUseLeftTrackpad(!m_controller->IsUseLeftTrackpad());
@@ -118,10 +162,12 @@ LRESULT TrayApp::HandleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             break;
         case IDM_OUTPUT_X360:
             m_controller->SetOutputMode(VirtualControllerMode::Xbox360);
+            RefreshBackButtonMappingWindow();
             SaveSettings();
             break;
         case IDM_OUTPUT_DS4:
             m_controller->SetOutputMode(VirtualControllerMode::DualShock4);
+            RefreshBackButtonMappingWindow();
             SaveSettings();
             break;
         case IDM_STARTUP:
@@ -139,7 +185,20 @@ LRESULT TrayApp::HandleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             m_controller->OnDeviceChange();
         return TRUE;
 
+    case WM_CLOSE:
+        if (hwnd == m_backButtonHwnd) {
+            DestroyWindow(hwnd);
+            return 0;
+        }
+        break;
+
     case WM_DESTROY:
+        if (hwnd == m_backButtonHwnd) {
+            m_backButtonHwnd = nullptr;
+            for (HWND& combo : m_backButtonCombos)
+                combo = nullptr;
+            return 0;
+        }
         PostQuitMessage(0);
         return 0;
     }
@@ -241,6 +300,15 @@ void TrayApp::LoadSettings() {
             return val != 0;
         return def;
     };
+    auto readAction = [&](const wchar_t* name) -> BackButtonAction {
+        DWORD val = 0, size = sizeof(val);
+        if (RegQueryValueExW(key, name, nullptr, nullptr,
+                             reinterpret_cast<LPBYTE>(&val), &size) == ERROR_SUCCESS &&
+            IsValidBackButtonAction(val)) {
+            return static_cast<BackButtonAction>(val);
+        }
+        return BackButtonAction::None;
+    };
 
     DWORD outputMode = 0, outputModeSize = sizeof(outputMode);
     if (RegQueryValueExW(key, L"OutputMode", nullptr, nullptr,
@@ -255,6 +323,10 @@ void TrayApp::LoadSettings() {
     m_controller->SetUseLeftTrackpad     (readBool(L"UseLeftTrackpad", false));
     m_controller->SetTrackpadDpadEnabled (readBool(L"TrackpadDpad",    false));
     m_controller->SetTrackpadDpadUseRight(readBool(L"TrackpadDpadRight", false));
+    m_controller->SetBackButtonMapping(BackButtonId::L4, readAction(L"BackMapL4"));
+    m_controller->SetBackButtonMapping(BackButtonId::L5, readAction(L"BackMapL5"));
+    m_controller->SetBackButtonMapping(BackButtonId::R4, readAction(L"BackMapR4"));
+    m_controller->SetBackButtonMapping(BackButtonId::R5, readAction(L"BackMapR5"));
 
     RegCloseKey(key);
 }
@@ -271,6 +343,11 @@ void TrayApp::SaveSettings() {
         RegSetValueExW(key, name, 0, REG_DWORD,
                        reinterpret_cast<const BYTE*>(&dw), sizeof(dw));
     };
+    auto writeAction = [&](const wchar_t* name, BackButtonAction action) {
+        DWORD dw = static_cast<DWORD>(action);
+        RegSetValueExW(key, name, 0, REG_DWORD,
+                       reinterpret_cast<const BYTE*>(&dw), sizeof(dw));
+    };
 
     writeBool(L"TrackpadMouse",   m_controller->IsTrackpadMouseEnabled());
     writeBool(L"BackButtons",     m_controller->IsBackButtonsEnabled());
@@ -280,8 +357,167 @@ void TrayApp::SaveSettings() {
     DWORD outputMode = m_controller->GetOutputMode() == VirtualControllerMode::DualShock4 ? 1u : 0u;
     RegSetValueExW(key, L"OutputMode", 0, REG_DWORD,
                    reinterpret_cast<const BYTE*>(&outputMode), sizeof(outputMode));
+    writeAction(L"BackMapL4", m_controller->GetBackButtonMapping(BackButtonId::L4));
+    writeAction(L"BackMapL5", m_controller->GetBackButtonMapping(BackButtonId::L5));
+    writeAction(L"BackMapR4", m_controller->GetBackButtonMapping(BackButtonId::R4));
+    writeAction(L"BackMapR5", m_controller->GetBackButtonMapping(BackButtonId::R5));
 
     RegCloseKey(key);
+}
+
+void TrayApp::ShowBackButtonMappingWindow() {
+    if (m_backButtonHwnd) {
+        RefreshBackButtonMappingWindow();
+        ShowWindow(m_backButtonHwnd, SW_SHOWNORMAL);
+        SetForegroundWindow(m_backButtonHwnd);
+        return;
+    }
+
+    constexpr DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU;
+    constexpr DWORD exStyle = WS_EX_TOOLWINDOW;
+    RECT rect{0, 0, 340, 185};
+    AdjustWindowRectEx(&rect, style, FALSE, exStyle);
+
+    HWND hwnd = CreateWindowExW(
+        exStyle,
+        BACKBUTTON_WNDCLASS_NAME,
+        L"Back Button Mappings",
+        style,
+        CW_USEDEFAULT,
+        CW_USEDEFAULT,
+        rect.right - rect.left,
+        rect.bottom - rect.top,
+        nullptr,
+        nullptr,
+        m_hInstance,
+        nullptr);
+    if (!hwnd)
+        return;
+
+    m_backButtonHwnd = hwnd;
+    CreateBackButtonMappingControls();
+    RefreshBackButtonMappingWindow();
+    ShowWindow(m_backButtonHwnd, SW_SHOWNORMAL);
+    SetForegroundWindow(m_backButtonHwnd);
+}
+
+void TrayApp::CreateBackButtonMappingControls() {
+    if (!m_backButtonHwnd)
+        return;
+
+    HFONT font = reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+    const wchar_t* labels[] = {L"L4", L"L5", L"R4", L"R5"};
+    const UINT ids[] = {IDC_BACKMAP_L4, IDC_BACKMAP_L5, IDC_BACKMAP_R4, IDC_BACKMAP_R5};
+
+    for (size_t i = 0; i < static_cast<size_t>(BackButtonId::Count); ++i) {
+        HWND label = CreateWindowExW(
+            0,
+            L"STATIC",
+            labels[i],
+            WS_CHILD | WS_VISIBLE | SS_RIGHT,
+            18,
+            22 + static_cast<int>(i) * 34,
+            34,
+            22,
+            m_backButtonHwnd,
+            nullptr,
+            m_hInstance,
+            nullptr);
+        SendMessageW(label, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+
+        HWND combo = CreateWindowExW(
+            0,
+            L"COMBOBOX",
+            nullptr,
+            WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL,
+            68,
+            18 + static_cast<int>(i) * 34,
+            238,
+            220,
+            m_backButtonHwnd,
+            reinterpret_cast<HMENU>(static_cast<UINT_PTR>(ids[i])),
+            m_hInstance,
+            nullptr);
+        SendMessageW(combo, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+        m_backButtonCombos[i] = combo;
+    }
+}
+
+void TrayApp::RefreshBackButtonMappingWindow() {
+    if (!m_backButtonHwnd)
+        return;
+
+    const bool ds4Mode = m_controller->GetOutputMode() == VirtualControllerMode::DualShock4;
+    SetWindowTextW(m_backButtonHwnd,
+                   ds4Mode ? L"Back Button Mappings - DualShock 4"
+                           : L"Back Button Mappings - Xbox 360");
+
+    for (uint8_t i = 0; i < static_cast<uint8_t>(BackButtonId::Count); ++i) {
+        const auto id = static_cast<BackButtonId>(i);
+        HWND combo = m_backButtonCombos[BackButtonIndex(id)];
+        if (combo)
+            PopulateBackButtonCombo(combo, m_controller->GetBackButtonMapping(id));
+    }
+}
+
+void TrayApp::PopulateBackButtonCombo(HWND combo, BackButtonAction selected) {
+    if (!combo)
+        return;
+
+    SendMessageW(combo, CB_RESETCONTENT, 0, 0);
+
+    const bool ds4Mode = m_controller->GetOutputMode() == VirtualControllerMode::DualShock4;
+    int selectedIndex = 0;
+    auto add = [&](const wchar_t* label, BackButtonAction action) {
+        const int index = static_cast<int>(SendMessageW(combo, CB_ADDSTRING, 0,
+                                                        reinterpret_cast<LPARAM>(label)));
+        SendMessageW(combo, CB_SETITEMDATA, static_cast<WPARAM>(index),
+                     static_cast<LPARAM>(static_cast<int>(action)));
+        if (action == selected)
+            selectedIndex = index;
+    };
+
+    add(L"None", BackButtonAction::None);
+    add(L"D-pad Up", BackButtonAction::DpadUp);
+    add(L"D-pad Down", BackButtonAction::DpadDown);
+    add(L"D-pad Left", BackButtonAction::DpadLeft);
+    add(L"D-pad Right", BackButtonAction::DpadRight);
+    add(ds4Mode ? L"Cross" : L"A", BackButtonAction::South);
+    add(ds4Mode ? L"Circle" : L"B", BackButtonAction::East);
+    add(ds4Mode ? L"Square" : L"X", BackButtonAction::West);
+    add(ds4Mode ? L"Triangle" : L"Y", BackButtonAction::North);
+    add(ds4Mode ? L"L1" : L"LB", BackButtonAction::LeftBumper);
+    add(ds4Mode ? L"R1" : L"RB", BackButtonAction::RightBumper);
+    add(ds4Mode ? L"L2" : L"LT", BackButtonAction::LeftTrigger);
+    add(ds4Mode ? L"R2" : L"RT", BackButtonAction::RightTrigger);
+    add(ds4Mode ? L"L3" : L"Left Stick Click", BackButtonAction::LeftStick);
+    add(ds4Mode ? L"R3" : L"Right Stick Click", BackButtonAction::RightStick);
+    add(ds4Mode ? L"Share" : L"Back", BackButtonAction::Back);
+    add(ds4Mode ? L"Options" : L"Start", BackButtonAction::Start);
+    add(ds4Mode ? L"PS" : L"Guide", BackButtonAction::Guide);
+
+    SendMessageW(combo, CB_SETCURSEL, static_cast<WPARAM>(selectedIndex), 0);
+}
+
+void TrayApp::OnBackButtonMappingChanged(UINT controlId) {
+    BackButtonId id = BackButtonIdFromComboId(controlId);
+    HWND combo = m_backButtonCombos[BackButtonIndex(id)];
+    if (!combo)
+        return;
+
+    const LRESULT selection = SendMessageW(combo, CB_GETCURSEL, 0, 0);
+    if (selection == CB_ERR)
+        return;
+
+    const LRESULT itemData = SendMessageW(combo, CB_GETITEMDATA,
+                                          static_cast<WPARAM>(selection),
+                                          0);
+    if (itemData == CB_ERR)
+        return;
+
+    const auto action = static_cast<BackButtonAction>(itemData);
+    m_controller->SetBackButtonMapping(id, action);
+    SaveSettings();
 }
 
 void TrayApp::ShowContextMenu() {
@@ -293,6 +529,7 @@ void TrayApp::ShowContextMenu() {
     bool trackpadDpadOn = m_controller->IsTrackpadDpadEnabled();
     bool trackpadDpadRight = m_controller->IsTrackpadDpadUseRight();
     bool startupOn      = IsStartupEnabled();
+    bool backButtonMappingsActive = m_controller->HasBackButtonMappings();
     VirtualControllerMode outputMode = m_controller->GetOutputMode();
     const bool ds4Mode = outputMode == VirtualControllerMode::DualShock4;
     const bool dpadLocksMouse = ds4Mode && trackpadDpadOn;
@@ -311,8 +548,11 @@ void TrayApp::ShowContextMenu() {
                        | (trackpadOn && !dpadLocksMouse ? MF_CHECKED : MF_UNCHECKED);
     AppendMenuW(trackpadMenu, trackpadFlags, IDM_TRACKPAD, L"Enable Trackpad Mouse");
 
-    UINT backFlags = MF_STRING | mouseModeFlags
-                   | (backButtonsOn && !dpadLocksMouse ? MF_CHECKED : MF_UNCHECKED);
+    const UINT backMouseFlags = (dpadLocksMouse || backButtonMappingsActive) ? MF_GRAYED : MF_ENABLED;
+    UINT backFlags = MF_STRING | backMouseFlags
+                   | (backButtonsOn && !dpadLocksMouse && !backButtonMappingsActive
+                      ? MF_CHECKED
+                      : MF_UNCHECKED);
     AppendMenuW(trackpadMenu, backFlags, IDM_BACKBUTTONS, L"Enable Back Buttons for Clicking");
 
     UINT leftFlags = MF_STRING | mouseModeFlags
@@ -328,6 +568,7 @@ void TrayApp::ShowContextMenu() {
                         | (trackpadDpadRight ? MF_CHECKED : MF_UNCHECKED);
     AppendMenuW(trackpadMenu, dpadRightFlags, IDM_TRACKPAD_DPAD_RIGHT, L"Use Right Trackpad for D-pad");
 
+    AppendMenuW(menu, MF_STRING, IDM_BACKBUTTON_MAPPINGS, L"Back Button Mappings...");
     AppendMenuW(menu, MF_POPUP | MF_STRING, reinterpret_cast<UINT_PTR>(trackpadMenu), L"Trackpad Settings");
 
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);

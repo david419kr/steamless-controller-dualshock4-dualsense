@@ -1,4 +1,5 @@
 #pragma once
+#include "BackButtonMapping.h"
 #include "TrackpadMouse.h"
 #include "VirtualController.h"
 #include <cstdint>
@@ -33,6 +34,7 @@ public:
     void SetTrackpadDpadEnabled(bool enabled);
     void SetTrackpadDpadUseRight(bool enabled);
     void SetOutputMode(VirtualControllerMode mode);
+    void SetBackButtonMapping(BackButtonId id, BackButtonAction action);
 
     bool IsConnected()             const { return m_connected; }
     bool IsGameModeActive()        const { return m_gameModeActive; }
@@ -42,6 +44,9 @@ public:
     bool IsTrackpadDpadEnabled()   const { return m_trackpadDpadEnabled; }
     bool IsTrackpadDpadUseRight()  const { return m_trackpadDpadUseRight; }
     VirtualControllerMode GetOutputMode() const { return m_outputMode; }
+    BackButtonAction GetBackButtonMapping(BackButtonId id) const { return m_backButtonMappings.Get(id); }
+    BackButtonMappings GetBackButtonMappings() const { return m_backButtonMappings; }
+    bool HasBackButtonMappings() const { return m_backButtonMappings.AnyAssigned(); }
 
 private:
     void TryOpen();
@@ -78,6 +83,7 @@ private:
     std::chrono::steady_clock::time_point m_lastHapticLeftPulse{};
     std::chrono::steady_clock::time_point m_lastHapticRightPulse{};
     VirtualControllerMode              m_outputMode           = VirtualControllerMode::Xbox360;
+    BackButtonMappings                 m_backButtonMappings;
     std::unique_ptr<VirtualController> m_virtual;
     TrackpadMouse                      m_trackpad;
     std::thread                        m_readThread;

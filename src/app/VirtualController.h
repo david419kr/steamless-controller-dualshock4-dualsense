@@ -1,7 +1,9 @@
 #pragma once
+#include "BackButtonMapping.h"
 #include <cstdint>
 #include <cstddef>
 #include <atomic>
+#include <array>
 #include <functional>
 #include <thread>
 
@@ -31,6 +33,7 @@ public:
     void SetBatteryState(uint8_t levelPercent, uint8_t chargeState);
     void SetTrackpadMouseClaim(bool enabled, bool useLeftTrackpad);
     void SetTrackpadDpadClaim(bool enabled, bool useRightTrackpad);
+    void SetBackButtonMappings(const BackButtonMappings& mappings);
     void OnRumble(uint8_t largeMotor, uint8_t smallMotor);
 
 private:
@@ -58,6 +61,7 @@ private:
     bool m_useLeftTrackpadForMouse = false;
     bool m_trackpadDpadEnabled = false;
     bool m_useRightTrackpadForDpad = false;
+    std::array<std::atomic<uint8_t>, static_cast<size_t>(BackButtonId::Count)> m_backButtonMappings{};
     std::atomic<bool> m_ds4OutputRunning{false};
     std::thread m_ds4OutputThread;
 };

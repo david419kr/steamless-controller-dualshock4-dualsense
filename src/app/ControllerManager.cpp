@@ -146,6 +146,14 @@ void ControllerManager::SetOutputMode(VirtualControllerMode mode) {
         ApplyTrackpadRuntimeSettings();
 }
 
+void ControllerManager::SetBackButtonMapping(BackButtonId id, BackButtonAction action) {
+    if (m_backButtonMappings.Get(id) == action)
+        return;
+
+    m_backButtonMappings.Set(id, action);
+    ApplyTrackpadRuntimeSettings();
+}
+
 bool ControllerManager::IsTrackpadDpadActive() const {
     return m_trackpadDpadEnabled;
 }
@@ -173,8 +181,11 @@ void ControllerManager::LinkMouseToDpadSideForXbox() {
 void ControllerManager::ApplyTrackpadRuntimeSettings() {
     const bool dpadActive = IsTrackpadDpadActive();
     const bool dpadLocksMouse = ShouldTrackpadDpadLockMouse();
+    const bool backButtonMappingsActive = m_backButtonMappings.AnyAssigned();
     const bool effectiveTrackpadMouse = m_trackpadMouseEnabled && !dpadLocksMouse;
-    const bool effectiveBackButtons = m_backButtonsEnabled && !dpadLocksMouse;
+    const bool effectiveBackButtons = m_backButtonsEnabled &&
+                                      !dpadLocksMouse &&
+                                      !backButtonMappingsActive;
 
     if (!effectiveTrackpadMouse || !effectiveBackButtons)
         m_trackpad.Reset();
@@ -195,6 +206,7 @@ void ControllerManager::ApplyTrackpadRuntimeSettings() {
     if (m_virtual) {
         m_virtual->SetTrackpadMouseClaim(effectiveTrackpadMouse, m_useLeftTrackpad);
         m_virtual->SetTrackpadDpadClaim(dpadActive, m_trackpadDpadUseRight);
+        m_virtual->SetBackButtonMappings(m_backButtonMappings);
     }
 }
 
