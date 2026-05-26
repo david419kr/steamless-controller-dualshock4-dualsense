@@ -54,6 +54,10 @@ private:
     void ReadLoop();
     void ApplyTrackpadRuntimeSettings();
     bool IsTrackpadDpadActive() const;
+    bool ShouldTrackpadDpadLockMouse() const;
+    bool ShouldLinkTrackpadSidesForXbox() const;
+    void LinkDpadToMouseSideForXbox();
+    void LinkMouseToDpadSideForXbox();
 
     StateChangedFn                     m_onStateChanged;
     bool                               m_connected            = false;

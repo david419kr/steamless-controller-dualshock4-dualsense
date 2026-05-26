@@ -103,6 +103,29 @@ static DS4_DPAD_DIRECTIONS TrackpadDpadDirection(int16_t x, int16_t y, bool acti
         : (iy >= 0 ? DS4_BUTTON_DPAD_NORTH : DS4_BUTTON_DPAD_SOUTH);
 }
 
+static USHORT XusbDpadButtons(DS4_DPAD_DIRECTIONS direction) {
+    switch (direction) {
+    case DS4_BUTTON_DPAD_NORTH:
+        return XUSB_GAMEPAD_DPAD_UP;
+    case DS4_BUTTON_DPAD_NORTHEAST:
+        return XUSB_GAMEPAD_DPAD_UP | XUSB_GAMEPAD_DPAD_RIGHT;
+    case DS4_BUTTON_DPAD_EAST:
+        return XUSB_GAMEPAD_DPAD_RIGHT;
+    case DS4_BUTTON_DPAD_SOUTHEAST:
+        return XUSB_GAMEPAD_DPAD_DOWN | XUSB_GAMEPAD_DPAD_RIGHT;
+    case DS4_BUTTON_DPAD_SOUTH:
+        return XUSB_GAMEPAD_DPAD_DOWN;
+    case DS4_BUTTON_DPAD_SOUTHWEST:
+        return XUSB_GAMEPAD_DPAD_DOWN | XUSB_GAMEPAD_DPAD_LEFT;
+    case DS4_BUTTON_DPAD_WEST:
+        return XUSB_GAMEPAD_DPAD_LEFT;
+    case DS4_BUTTON_DPAD_NORTHWEST:
+        return XUSB_GAMEPAD_DPAD_UP | XUSB_GAMEPAD_DPAD_LEFT;
+    default:
+        return 0;
+    }
+}
+
 static bool ParseDs4OutputRumble(const DS4_OUTPUT_BUFFER& output,
                                  uint8_t& largeMotor,
                                  uint8_t& smallMotor) {
@@ -123,12 +146,15 @@ static bool ParseDs4OutputRumble(const DS4_OUTPUT_BUFFER& output,
     return false;
 }
 
-static XUSB_REPORT TranslateXusb(const SteamControllerState& state) {
+static XUSB_REPORT TranslateXusb(const SteamControllerState& state,
+                                  bool trackpadDpadEnabled,
+                                  bool useRightTrackpadForDpad) {
     XUSB_REPORT r{};
 
     const uint8_t b0 = ButtonByte(state, 0);
     const uint8_t b1 = ButtonByte(state, 1);
     const uint8_t b2 = ButtonByte(state, 2);
+    const uint8_t b3 = ButtonByte(state, 3);
 
     if (b0 & SteamController::BTN_A) r.wButtons |= XUSB_GAMEPAD_A;
     if (b0 & SteamController::BTN_B) r.wButtons |= XUSB_GAMEPAD_B;
@@ -150,6 +176,22 @@ static XUSB_REPORT TranslateXusb(const SteamControllerState& state) {
     if (b1 & SteamController::BTN_DPAD_DN) r.wButtons |= XUSB_GAMEPAD_DPAD_DOWN;
     if (b1 & SteamController::BTN_DPAD_LT) r.wButtons |= XUSB_GAMEPAD_DPAD_LEFT;
     if (b1 & SteamController::BTN_DPAD_RT) r.wButtons |= XUSB_GAMEPAD_DPAD_RIGHT;
+
+    if (trackpadDpadEnabled) {
+        const bool rawRightClick = (b2 & 0x40) != 0;
+        const bool rawLeftClick = (b3 & SteamController::BTN_TP_LT_CLICK) != 0;
+        const DS4_DPAD_DIRECTIONS trackpadDpad = useRightTrackpadForDpad
+            ? TrackpadDpadDirection(state.rightPadX, state.rightPadY, rawRightClick)
+            : TrackpadDpadDirection(state.leftPadX, state.leftPadY, rawLeftClick);
+        const USHORT xusbDpad = XusbDpadButtons(trackpadDpad);
+        if (xusbDpad != 0) {
+            r.wButtons &= static_cast<USHORT>(~(XUSB_GAMEPAD_DPAD_UP |
+                                                XUSB_GAMEPAD_DPAD_DOWN |
+                                                XUSB_GAMEPAD_DPAD_LEFT |
+                                                XUSB_GAMEPAD_DPAD_RIGHT));
+            r.wButtons |= xusbDpad;
+        }
+    }
 
     r.bLeftTrigger = TriggerToByte(state.leftTrigger);
     r.bRightTrigger = TriggerToByte(state.rightTrigger);
@@ -332,8 +374,8 @@ void VirtualController::Update(const SteamControllerState& state) {
         if (m_trackpadDpadEnabled) {
             const bool useRight = m_useRightTrackpadForDpad;
             const DS4_DPAD_DIRECTIONS trackpadDpad = useRight
-                ? TrackpadDpadDirection(state.rightPadX, state.rightPadY, rawRightTouching)
-                : TrackpadDpadDirection(state.leftPadX, state.leftPadY, rawLeftTouching);
+                ? TrackpadDpadDirection(state.rightPadX, state.rightPadY, rawRightClick)
+                : TrackpadDpadDirection(state.leftPadX, state.leftPadY, rawLeftClick);
             if (trackpadDpad != DS4_BUTTON_DPAD_NONE)
                 dpad = trackpadDpad;
         }
@@ -417,7 +459,7 @@ void VirtualController::Update(const SteamControllerState& state) {
         return;
     }
 
-    XUSB_REPORT report = TranslateXusb(state);
+    XUSB_REPORT report = TranslateXusb(state, m_trackpadDpadEnabled, m_useRightTrackpadForDpad);
     vigem_target_x360_update(static_cast<PVIGEM_CLIENT>(m_client),
                              static_cast<PVIGEM_TARGET>(m_target),
                              report);
