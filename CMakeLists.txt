@@ -3,6 +3,9 @@ project(SteamlessController CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+if (MSVC)
+    add_compile_options(/utf-8 /wd4828)
+endif()
 
 # Shared HID + Steam Controller library code
 add_library(SteamController STATIC
@@ -27,10 +30,10 @@ endif()
 
 # ViGEmClient (built from source, static)
 add_library(ViGEmClient STATIC
-    third_party/ViGEmClient-1.16.18.0/src/ViGEmClient.cpp
+    third_party/ViGEmClient-b66d02d/src/ViGEmClient.cpp
 )
 target_include_directories(ViGEmClient PUBLIC
-    third_party/ViGEmClient-1.16.18.0/include
+    third_party/ViGEmClient-b66d02d/include
 )
 target_link_libraries(ViGEmClient PUBLIC setupapi)
 if (MSVC)

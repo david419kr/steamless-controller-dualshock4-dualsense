@@ -9,7 +9,8 @@ When **Steamless Mode** is active, the app disables the controller's built-in ke
 ## Features
 
 - System tray icon shows connection and mode status
-- **Steamless Mode** — disables lizard mode and exposes controller as Xbox 360 gamepad
+- **Steamless Mode** — disables lizard mode and exposes controller as an Xbox 360 or DualShock 4 gamepad
+- **DualShock 4 output mode** — forwards buttons, sticks, triggers, native gyro/accelerometer motion, touchpad contacts, and rumble
 - **Trackpad Mouse** — use the right (or left) trackpad as a mouse cursor
 - **Back Buttons for Clicking** — map R4/R5 (or L4/L5) to left/right mouse click
 - **Use Left Trackpad Instead** — mirror all trackpad/back-button functionality to the left side for left-handed users
@@ -24,7 +25,7 @@ When **Steamless Mode** is active, the app disables the controller's built-in ke
 
 ### To run
 - Windows 10 or later (64-bit)
-- [ViGEmBus](https://github.com/nefarius/ViGEmBus/releases/latest) driver installed
+- [ViGEmBus](https://github.com/nefarius/ViGEmBus/releases/latest) driver installed (1.22.0 or newer recommended for full DualShock 4 motion/touch support)
 - Steam Controller (VID `0x28DE` / PID `0x1302`)
 - Steam **closed** (Steam claims the controller when running)
 
@@ -63,9 +64,9 @@ cmake --build build/release --config Release --target SteamlessController
 
 ## How it works
 
-The Steam Controller exposes a vendor HID collection (usage page `0xFF00`) that carries all game input in a 54-byte report (ID `0x42`) at ~60 Hz. By default the firmware runs in **lizard mode**, emulating a keyboard and mouse so the controller works without drivers.
+The Steam Controller exposes a vendor HID collection (usage page `0xFF00`) that carries all game input in state reports (ID `0x42` or `0x45`, depending on firmware/connection path). By default the firmware runs in **lizard mode**, emulating a keyboard and mouse so the controller works without drivers.
 
-SteamlessController sends HID feature reports to disable lizard mode, then reads the raw input reports and translates them into a virtual Xbox 360 controller via ViGEmBus. A background heartbeat re-sends the disable command every 800 ms to keep lizard mode off.
+SteamlessController sends HID feature reports to disable lizard mode, then reads the raw input reports and translates them into a virtual Xbox 360 or DualShock 4 controller via ViGEmBus. In DualShock 4 mode it also enables raw IMU reports, maps the Steam Controller gyro/accelerometer fields into the DS4 extended report, maps both trackpads into DS4 touch contacts, and forwards virtual-controller rumble back to the Steam Controller haptics.
 
 The full input report layout is documented in [`src/steam/SteamController.h`](src/steam/SteamController.h).
 

@@ -39,6 +39,8 @@ private:
     static constexpr UINT IDM_BACKBUTTONS   = 1004;
     static constexpr UINT IDM_LEFT_TRACKPAD = 1005;
     static constexpr UINT IDM_STARTUP       = 1006;
+    static constexpr UINT IDM_OUTPUT_X360   = 1007;
+    static constexpr UINT IDM_OUTPUT_DS4    = 1008;
     static constexpr UINT WM_TRAY          = WM_APP + 1;
     static constexpr UINT TRAY_UID         = 1;
 };
