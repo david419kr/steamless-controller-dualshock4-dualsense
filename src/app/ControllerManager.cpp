@@ -60,10 +60,7 @@ void ControllerManager::EnableGameMode() {
 
     m_gameModeActive = true;
     m_trackpad.Reset();
-    m_trackpad.SetTrackpadEnabled(m_trackpadMouseEnabled);
-    m_trackpad.SetBackButtonsEnabled(m_backButtonsEnabled);
-    m_trackpad.SetUseLeftTrackpad(m_useLeftTrackpad);
-    m_virtual->SetTrackpadMouseClaim(m_trackpadMouseEnabled, m_useLeftTrackpad);
+    ApplyTrackpadRuntimeSettings();
     StartReadLoop();
     m_onStateChanged(m_connected, m_gameModeActive, false);
 }
@@ -85,21 +82,27 @@ void ControllerManager::DisableGameMode() {
 
 void ControllerManager::SetTrackpadMouseEnabled(bool enabled) {
     m_trackpadMouseEnabled = enabled;
-    m_trackpad.SetTrackpadEnabled(enabled);
-    if (m_virtual)
-        m_virtual->SetTrackpadMouseClaim(m_trackpadMouseEnabled, m_useLeftTrackpad);
+    ApplyTrackpadRuntimeSettings();
 }
 
 void ControllerManager::SetBackButtonsEnabled(bool enabled) {
     m_backButtonsEnabled = enabled;
-    m_trackpad.SetBackButtonsEnabled(enabled);
+    ApplyTrackpadRuntimeSettings();
 }
 
 void ControllerManager::SetUseLeftTrackpad(bool enabled) {
     m_useLeftTrackpad = enabled;
-    m_trackpad.SetUseLeftTrackpad(enabled);
-    if (m_virtual)
-        m_virtual->SetTrackpadMouseClaim(m_trackpadMouseEnabled, m_useLeftTrackpad);
+    ApplyTrackpadRuntimeSettings();
+}
+
+void ControllerManager::SetTrackpadDpadEnabled(bool enabled) {
+    m_trackpadDpadEnabled = enabled;
+    ApplyTrackpadRuntimeSettings();
+}
+
+void ControllerManager::SetTrackpadDpadUseRight(bool enabled) {
+    m_trackpadDpadUseRight = enabled;
+    ApplyTrackpadRuntimeSettings();
 }
 
 void ControllerManager::SetOutputMode(VirtualControllerMode mode) {
@@ -134,6 +137,28 @@ void ControllerManager::SetHideOriginalControllerEnabled(bool enabled) {
 void ControllerManager::RevealOriginalControllerNow() {
     if (m_hidHide.RevealSteamControllerNow())
         m_originalHidden = false;
+}
+
+bool ControllerManager::IsTrackpadDpadActive() const {
+    return m_outputMode == VirtualControllerMode::DualShock4 && m_trackpadDpadEnabled;
+}
+
+void ControllerManager::ApplyTrackpadRuntimeSettings() {
+    const bool dpadActive = IsTrackpadDpadActive();
+    const bool effectiveTrackpadMouse = m_trackpadMouseEnabled && !dpadActive;
+    const bool effectiveBackButtons = m_backButtonsEnabled && !dpadActive;
+
+    if (!effectiveTrackpadMouse || !effectiveBackButtons)
+        m_trackpad.Reset();
+
+    m_trackpad.SetTrackpadEnabled(effectiveTrackpadMouse);
+    m_trackpad.SetBackButtonsEnabled(effectiveBackButtons);
+    m_trackpad.SetUseLeftTrackpad(m_useLeftTrackpad);
+
+    if (m_virtual) {
+        m_virtual->SetTrackpadMouseClaim(effectiveTrackpadMouse, m_useLeftTrackpad);
+        m_virtual->SetTrackpadDpadClaim(dpadActive, m_trackpadDpadUseRight);
+    }
 }
 
 void ControllerManager::TryOpen() {
