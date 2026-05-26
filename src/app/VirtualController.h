@@ -1,7 +1,9 @@
 #pragma once
 #include <cstdint>
 #include <cstddef>
+#include <atomic>
 #include <functional>
+#include <thread>
 
 struct SteamControllerState;
 
@@ -27,6 +29,8 @@ public:
 
     void Update(const SteamControllerState& state);
     void SetBatteryState(uint8_t levelPercent, uint8_t chargeState);
+    void SetTrackpadMouseClaim(bool enabled, bool useLeftTrackpad);
+    void SetTrackpadDpadClaim(bool enabled, bool useRightTrackpad);
     void OnRumble(uint8_t largeMotor, uint8_t smallMotor);
 
 private:
@@ -46,4 +50,10 @@ private:
     bool m_wasLeftTouching = false;
     uint8_t m_ds4BatteryLevel = 0x0B;
     uint8_t m_ds4BatterySpecial = 0x1B;
+    bool m_trackpadMouseEnabled = false;
+    bool m_useLeftTrackpadForMouse = false;
+    bool m_trackpadDpadEnabled = false;
+    bool m_useRightTrackpadForDpad = false;
+    std::atomic<bool> m_ds4OutputRunning{false};
+    std::thread m_ds4OutputThread;
 };

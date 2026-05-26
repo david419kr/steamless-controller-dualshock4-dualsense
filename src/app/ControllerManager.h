@@ -28,6 +28,8 @@ public:
     void SetTrackpadMouseEnabled(bool enabled);
     void SetBackButtonsEnabled(bool enabled);
     void SetUseLeftTrackpad(bool enabled);
+    void SetTrackpadDpadEnabled(bool enabled);
+    void SetTrackpadDpadUseRight(bool enabled);
     void SetOutputMode(VirtualControllerMode mode);
 
     bool IsConnected()             const { return m_connected; }
@@ -35,6 +37,8 @@ public:
     bool IsTrackpadMouseEnabled()  const { return m_trackpadMouseEnabled; }
     bool IsBackButtonsEnabled()    const { return m_backButtonsEnabled; }
     bool IsUseLeftTrackpad()       const { return m_useLeftTrackpad; }
+    bool IsTrackpadDpadEnabled()   const { return m_trackpadDpadEnabled; }
+    bool IsTrackpadDpadUseRight()  const { return m_trackpadDpadUseRight; }
     VirtualControllerMode GetOutputMode() const { return m_outputMode; }
 
 private:
@@ -43,6 +47,12 @@ private:
     void StartReadLoop();
     void StopReadLoop();
     void ReadLoop();
+    void ApplyTrackpadRuntimeSettings();
+    bool IsTrackpadDpadActive() const;
+    bool ShouldTrackpadDpadLockMouse() const;
+    bool ShouldLinkTrackpadSidesForXbox() const;
+    void LinkDpadToMouseSideForXbox();
+    void LinkMouseToDpadSideForXbox();
 
     StateChangedFn                     m_onStateChanged;
     bool                               m_connected            = false;
@@ -50,6 +60,8 @@ private:
     bool                               m_trackpadMouseEnabled = false;
     bool                               m_backButtonsEnabled   = false;
     bool                               m_useLeftTrackpad      = false;
+    bool                               m_trackpadDpadEnabled  = false;
+    bool                               m_trackpadDpadUseRight = false;
     VirtualControllerMode              m_outputMode           = VirtualControllerMode::Xbox360;
     std::unique_ptr<VirtualController> m_virtual;
     TrackpadMouse                      m_trackpad;

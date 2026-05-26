@@ -46,9 +46,7 @@ void ControllerManager::EnableGameMode() {
 
     m_gameModeActive = true;
     m_trackpad.Reset();
-    m_trackpad.SetTrackpadEnabled(m_trackpadMouseEnabled);
-    m_trackpad.SetBackButtonsEnabled(m_backButtonsEnabled);
-    m_trackpad.SetUseLeftTrackpad(m_useLeftTrackpad);
+    ApplyTrackpadRuntimeSettings();
     StartReadLoop();
     m_onStateChanged(m_connected, m_gameModeActive, false);
 }
@@ -66,17 +64,33 @@ void ControllerManager::DisableGameMode() {
 
 void ControllerManager::SetTrackpadMouseEnabled(bool enabled) {
     m_trackpadMouseEnabled = enabled;
-    m_trackpad.SetTrackpadEnabled(enabled);
+    if (enabled)
+        LinkMouseToDpadSideForXbox();
+    ApplyTrackpadRuntimeSettings();
 }
 
 void ControllerManager::SetBackButtonsEnabled(bool enabled) {
     m_backButtonsEnabled = enabled;
-    m_trackpad.SetBackButtonsEnabled(enabled);
+    ApplyTrackpadRuntimeSettings();
 }
 
 void ControllerManager::SetUseLeftTrackpad(bool enabled) {
     m_useLeftTrackpad = enabled;
-    m_trackpad.SetUseLeftTrackpad(enabled);
+    LinkDpadToMouseSideForXbox();
+    ApplyTrackpadRuntimeSettings();
+}
+
+void ControllerManager::SetTrackpadDpadEnabled(bool enabled) {
+    m_trackpadDpadEnabled = enabled;
+    if (enabled)
+        LinkDpadToMouseSideForXbox();
+    ApplyTrackpadRuntimeSettings();
+}
+
+void ControllerManager::SetTrackpadDpadUseRight(bool enabled) {
+    m_trackpadDpadUseRight = enabled;
+    LinkMouseToDpadSideForXbox();
+    ApplyTrackpadRuntimeSettings();
 }
 
 void ControllerManager::SetOutputMode(VirtualControllerMode mode) {
@@ -87,9 +101,55 @@ void ControllerManager::SetOutputMode(VirtualControllerMode mode) {
         DisableGameMode();
 
     m_outputMode = mode;
+    LinkMouseToDpadSideForXbox();
 
     if (restart)
         EnableGameMode();
+    else
+        ApplyTrackpadRuntimeSettings();
+}
+
+bool ControllerManager::IsTrackpadDpadActive() const {
+    return m_trackpadDpadEnabled;
+}
+
+bool ControllerManager::ShouldTrackpadDpadLockMouse() const {
+    return m_outputMode == VirtualControllerMode::DualShock4 && IsTrackpadDpadActive();
+}
+
+bool ControllerManager::ShouldLinkTrackpadSidesForXbox() const {
+    return m_outputMode == VirtualControllerMode::Xbox360 &&
+           m_trackpadMouseEnabled &&
+           m_trackpadDpadEnabled;
+}
+
+void ControllerManager::LinkDpadToMouseSideForXbox() {
+    if (ShouldLinkTrackpadSidesForXbox())
+        m_trackpadDpadUseRight = m_useLeftTrackpad;
+}
+
+void ControllerManager::LinkMouseToDpadSideForXbox() {
+    if (ShouldLinkTrackpadSidesForXbox())
+        m_useLeftTrackpad = m_trackpadDpadUseRight;
+}
+
+void ControllerManager::ApplyTrackpadRuntimeSettings() {
+    const bool dpadActive = IsTrackpadDpadActive();
+    const bool dpadLocksMouse = ShouldTrackpadDpadLockMouse();
+    const bool effectiveTrackpadMouse = m_trackpadMouseEnabled && !dpadLocksMouse;
+    const bool effectiveBackButtons = m_backButtonsEnabled && !dpadLocksMouse;
+
+    if (!effectiveTrackpadMouse || !effectiveBackButtons)
+        m_trackpad.Reset();
+
+    m_trackpad.SetTrackpadEnabled(effectiveTrackpadMouse);
+    m_trackpad.SetBackButtonsEnabled(effectiveBackButtons);
+    m_trackpad.SetUseLeftTrackpad(m_useLeftTrackpad);
+
+    if (m_virtual) {
+        m_virtual->SetTrackpadMouseClaim(effectiveTrackpadMouse, m_useLeftTrackpad);
+        m_virtual->SetTrackpadDpadClaim(dpadActive, m_trackpadDpadUseRight);
+    }
 }
 
 void ControllerManager::TryOpen() {

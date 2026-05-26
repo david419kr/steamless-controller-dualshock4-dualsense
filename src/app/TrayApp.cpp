@@ -106,6 +106,16 @@ LRESULT TrayApp::HandleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             m_controller->SetUseLeftTrackpad(!m_controller->IsUseLeftTrackpad());
             SaveSettings();
             break;
+        case IDM_TRACKPAD_DPAD:
+            m_controller->SetTrackpadDpadEnabled(!m_controller->IsTrackpadDpadEnabled());
+            SaveSettings();
+            break;
+        case IDM_TRACKPAD_DPAD_RIGHT:
+            if (m_controller->IsTrackpadDpadEnabled()) {
+                m_controller->SetTrackpadDpadUseRight(!m_controller->IsTrackpadDpadUseRight());
+                SaveSettings();
+            }
+            break;
         case IDM_OUTPUT_X360:
             m_controller->SetOutputMode(VirtualControllerMode::Xbox360);
             SaveSettings();
@@ -232,10 +242,6 @@ void TrayApp::LoadSettings() {
         return def;
     };
 
-    m_controller->SetTrackpadMouseEnabled(readBool(L"TrackpadMouse",   false));
-    m_controller->SetBackButtonsEnabled  (readBool(L"BackButtons",     false));
-    m_controller->SetUseLeftTrackpad     (readBool(L"UseLeftTrackpad", false));
-
     DWORD outputMode = 0, outputModeSize = sizeof(outputMode);
     if (RegQueryValueExW(key, L"OutputMode", nullptr, nullptr,
                          reinterpret_cast<LPBYTE>(&outputMode), &outputModeSize) == ERROR_SUCCESS) {
@@ -243,6 +249,12 @@ void TrayApp::LoadSettings() {
             ? VirtualControllerMode::DualShock4
             : VirtualControllerMode::Xbox360);
     }
+
+    m_controller->SetTrackpadMouseEnabled(readBool(L"TrackpadMouse",   false));
+    m_controller->SetBackButtonsEnabled  (readBool(L"BackButtons",     false));
+    m_controller->SetUseLeftTrackpad     (readBool(L"UseLeftTrackpad", false));
+    m_controller->SetTrackpadDpadEnabled (readBool(L"TrackpadDpad",    false));
+    m_controller->SetTrackpadDpadUseRight(readBool(L"TrackpadDpadRight", false));
 
     RegCloseKey(key);
 }
@@ -263,6 +275,8 @@ void TrayApp::SaveSettings() {
     writeBool(L"TrackpadMouse",   m_controller->IsTrackpadMouseEnabled());
     writeBool(L"BackButtons",     m_controller->IsBackButtonsEnabled());
     writeBool(L"UseLeftTrackpad", m_controller->IsUseLeftTrackpad());
+    writeBool(L"TrackpadDpad",    m_controller->IsTrackpadDpadEnabled());
+    writeBool(L"TrackpadDpadRight", m_controller->IsTrackpadDpadUseRight());
     DWORD outputMode = m_controller->GetOutputMode() == VirtualControllerMode::DualShock4 ? 1u : 0u;
     RegSetValueExW(key, L"OutputMode", 0, REG_DWORD,
                    reinterpret_cast<const BYTE*>(&outputMode), sizeof(outputMode));
@@ -276,8 +290,12 @@ void TrayApp::ShowContextMenu() {
     bool trackpadOn     = m_controller->IsTrackpadMouseEnabled();
     bool backButtonsOn  = m_controller->IsBackButtonsEnabled();
     bool leftTrackpad   = m_controller->IsUseLeftTrackpad();
+    bool trackpadDpadOn = m_controller->IsTrackpadDpadEnabled();
+    bool trackpadDpadRight = m_controller->IsTrackpadDpadUseRight();
     bool startupOn      = IsStartupEnabled();
     VirtualControllerMode outputMode = m_controller->GetOutputMode();
+    const bool ds4Mode = outputMode == VirtualControllerMode::DualShock4;
+    const bool dpadLocksMouse = ds4Mode && trackpadDpadOn;
 
     HMENU menu = CreatePopupMenu();
 
@@ -287,14 +305,30 @@ void TrayApp::ShowContextMenu() {
 
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
 
-    UINT trackpadFlags = MF_STRING | (trackpadOn ? MF_CHECKED : MF_UNCHECKED);
-    AppendMenuW(menu, trackpadFlags, IDM_TRACKPAD, L"Enable Trackpad Mouse");
+    HMENU trackpadMenu = CreatePopupMenu();
+    const UINT mouseModeFlags = dpadLocksMouse ? MF_GRAYED : MF_ENABLED;
+    UINT trackpadFlags = MF_STRING | mouseModeFlags
+                       | (trackpadOn && !dpadLocksMouse ? MF_CHECKED : MF_UNCHECKED);
+    AppendMenuW(trackpadMenu, trackpadFlags, IDM_TRACKPAD, L"Enable Trackpad Mouse");
 
-    UINT backFlags = MF_STRING | (backButtonsOn ? MF_CHECKED : MF_UNCHECKED);
-    AppendMenuW(menu, backFlags, IDM_BACKBUTTONS, L"Enable Back Buttons for Clicking");
+    UINT backFlags = MF_STRING | mouseModeFlags
+                   | (backButtonsOn && !dpadLocksMouse ? MF_CHECKED : MF_UNCHECKED);
+    AppendMenuW(trackpadMenu, backFlags, IDM_BACKBUTTONS, L"Enable Back Buttons for Clicking");
 
-    UINT leftFlags = MF_STRING | (leftTrackpad ? MF_CHECKED : MF_UNCHECKED);
-    AppendMenuW(menu, leftFlags, IDM_LEFT_TRACKPAD, L"Use Left Trackpad Instead");
+    UINT leftFlags = MF_STRING | mouseModeFlags
+                   | (leftTrackpad && !dpadLocksMouse ? MF_CHECKED : MF_UNCHECKED);
+    AppendMenuW(trackpadMenu, leftFlags, IDM_LEFT_TRACKPAD, L"Use Left Trackpad Instead");
+
+    AppendMenuW(trackpadMenu, MF_SEPARATOR, 0, nullptr);
+
+    UINT dpadFlags = MF_STRING | (trackpadDpadOn ? MF_CHECKED : MF_UNCHECKED);
+    AppendMenuW(trackpadMenu, dpadFlags, IDM_TRACKPAD_DPAD, L"Use Trackpad as D-pad");
+
+    UINT dpadRightFlags = MF_STRING | (trackpadDpadOn ? MF_ENABLED : MF_GRAYED)
+                        | (trackpadDpadRight ? MF_CHECKED : MF_UNCHECKED);
+    AppendMenuW(trackpadMenu, dpadRightFlags, IDM_TRACKPAD_DPAD_RIGHT, L"Use Right Trackpad for D-pad");
+
+    AppendMenuW(menu, MF_POPUP | MF_STRING, reinterpret_cast<UINT_PTR>(trackpadMenu), L"Trackpad Settings");
 
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
 
