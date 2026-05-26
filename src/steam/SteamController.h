@@ -1,8 +1,45 @@
 #pragma once
 #include "hid/HidDevice.h"
 #include <atomic>
+#include <chrono>
 #include <cstdint>
+#include <mutex>
 #include <thread>
+
+struct SteamControllerState {
+    uint8_t  reportId = 0;
+    uint8_t  sequence = 0;
+    uint32_t buttons = 0;
+
+    int16_t  leftTrigger = 0;
+    int16_t  rightTrigger = 0;
+    int16_t  leftStickX = 0;
+    int16_t  leftStickY = 0;
+    int16_t  rightStickX = 0;
+    int16_t  rightStickY = 0;
+
+    int16_t  leftPadX = 0;
+    int16_t  leftPadY = 0;
+    uint16_t leftPadPressure = 0;
+    int16_t  rightPadX = 0;
+    int16_t  rightPadY = 0;
+    uint16_t rightPadPressure = 0;
+
+    bool     hasImu = false;
+    uint32_t imuTimestamp = 0;
+    int16_t  accelX = 0;
+    int16_t  accelY = 0;
+    int16_t  accelZ = 0;
+    int16_t  gyroX = 0;
+    int16_t  gyroY = 0;
+    int16_t  gyroZ = 0;
+};
+
+struct SteamControllerBatteryState {
+    bool     valid = false;
+    uint8_t  levelPercent = 100;
+    uint8_t  chargeState = 0;
+};
 
 class SteamController {
 public:
@@ -14,11 +51,16 @@ public:
     static constexpr uint16_t VENDOR_USAGE_PAGE = 0xFF00;
 
     // Input report IDs (device → host)
-    static constexpr uint8_t REPORT_STATE         = 0x45;  // 53 bytes: main controller state (changed from 0x42 in firmware update)
-    static constexpr uint8_t REPORT_SECONDARY      = 0x43;  // 14 bytes: gyro / secondary state
+    static constexpr uint8_t REPORT_STATE         = 0x45;  // BLE/no-quaternion state report
+    static constexpr uint8_t REPORT_STATE_LEGACY  = 0x42;  // USB/full state report
+    static constexpr uint8_t REPORT_BATTERY_STATUS = 0x43;  // TritonBatteryStatus_t
     static constexpr uint8_t REPORT_STATUS         = 0x44;  //  5 bytes: battery / connection
     static constexpr uint8_t REPORT_UNKNOWN_7B     = 0x7B;  // 12 bytes: TBD
     static constexpr uint8_t REPORT_UNKNOWN_79     = 0x79;  //  1 byte:  TBD
+
+    static constexpr uint8_t CHARGE_STATE_DISCHARGING  = 1;
+    static constexpr uint8_t CHARGE_STATE_CHARGING     = 2;
+    static constexpr uint8_t CHARGE_STATE_CHARGING_DONE = 4;
 
     // Feature report IDs — the command channel to the firmware.
     // Commands are wrapped inside Feature Report 0x01 (or 0x02 as fallback).
@@ -37,7 +79,10 @@ public:
     // Setting key IDs (go in the payload of CMD_SET_SETTINGS)
     static constexpr uint8_t SETTING_RIGHT_TRACKPAD_MODE = 0x07;
     static constexpr uint8_t SETTING_LEFT_TRACKPAD_MODE  = 0x08;
+    static constexpr uint8_t SETTING_IMU_MODE            = 0x30;
     static constexpr uint8_t TRACKPAD_NONE               = 0x00;
+    static constexpr uint16_t IMU_MODE_OFF               = 0x0000;
+    static constexpr uint16_t IMU_MODE_RAW_ACCEL_GYRO    = 0x0018;
 
     // ---------------------------------------------------------------------------
     // Input report layout — 0x45 STATE report (buf[0] = 0x45)
@@ -129,10 +174,25 @@ public:
     // Returns 0 on timeout.
     size_t ReadReport(uint8_t* buffer, size_t size, uint32_t timeoutMs = 16);
 
+    static bool IsStateReportId(uint8_t reportId);
+    static bool ParseStateReport(const uint8_t* buffer, size_t size, SteamControllerState& state);
+    static bool IsBatteryReportId(uint8_t reportId);
+    static bool ParseBatteryReport(const uint8_t* buffer, size_t size, SteamControllerBatteryState& state);
+
+    bool SetImuEnabled(bool enabled);
+    void SetRumble(uint8_t largeMotor, uint8_t smallMotor);
+    void MaintainRumble();
+
 private:
     void HeartbeatLoop();
+    bool SendRumbleOutput(uint16_t largeMotor, uint16_t smallMotor);
 
     HidDevice       m_device;
     std::thread     m_heartbeat;
     std::atomic<bool> m_running{false};
+    std::mutex      m_writeMutex;
+    std::mutex      m_rumbleMutex;
+    uint16_t        m_rumbleLarge = 0;
+    uint16_t        m_rumbleSmall = 0;
+    std::chrono::steady_clock::time_point m_lastRumbleSent{};
 };

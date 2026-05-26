@@ -25,11 +25,20 @@ void ControllerManager::OnDeviceChange() {
 void ControllerManager::EnableGameMode() {
     if (!m_connected || m_gameModeActive) return;
     if (!g_ctrl->DisableLizardMode()) return;
+    if (!g_ctrl->SetImuEnabled(m_outputMode == VirtualControllerMode::DualShock4)) {
+        g_ctrl->EnableLizardMode();
+        return;
+    }
 
-    m_virtual = std::make_unique<VirtualController>();
+    m_virtual = std::make_unique<VirtualController>(
+        m_outputMode,
+        [](uint8_t largeMotor, uint8_t smallMotor) {
+            if (g_ctrl) g_ctrl->SetRumble(largeMotor, smallMotor);
+        });
     if (!m_virtual->IsValid()) {
         bool missing = m_virtual->IsDriverMissing();
         m_virtual.reset();
+        g_ctrl->SetImuEnabled(false);
         g_ctrl->EnableLizardMode();
         if (missing) m_onStateChanged(m_connected, m_gameModeActive, /*vigemMissing=*/true);
         return;
@@ -49,6 +58,7 @@ void ControllerManager::DisableGameMode() {
     StopReadLoop();
     m_trackpad.Reset();
     m_virtual.reset();
+    g_ctrl->SetImuEnabled(false);
     g_ctrl->EnableLizardMode();
     m_gameModeActive = false;
     m_onStateChanged(m_connected, m_gameModeActive, false);
@@ -67,6 +77,19 @@ void ControllerManager::SetBackButtonsEnabled(bool enabled) {
 void ControllerManager::SetUseLeftTrackpad(bool enabled) {
     m_useLeftTrackpad = enabled;
     m_trackpad.SetUseLeftTrackpad(enabled);
+}
+
+void ControllerManager::SetOutputMode(VirtualControllerMode mode) {
+    if (m_outputMode == mode) return;
+
+    const bool restart = m_gameModeActive;
+    if (restart)
+        DisableGameMode();
+
+    m_outputMode = mode;
+
+    if (restart)
+        EnableGameMode();
 }
 
 void ControllerManager::TryOpen() {
@@ -104,10 +127,19 @@ void ControllerManager::StopReadLoop() {
 void ControllerManager::ReadLoop() {
     uint8_t buf[64];
     while (m_readRunning) {
+        if (g_ctrl) g_ctrl->MaintainRumble();
         size_t n = g_ctrl->ReadReport(buf, sizeof(buf), /*timeoutMs=*/32);
         if (n == 0) continue;
-        if (buf[0] != SteamController::REPORT_STATE) continue;
-        if (m_virtual) m_virtual->Update(buf, n);
+        if (SteamController::IsBatteryReportId(buf[0])) {
+            SteamControllerBatteryState battery;
+            if (SteamController::ParseBatteryReport(buf, n, battery) && m_virtual)
+                m_virtual->SetBatteryState(battery.levelPercent, battery.chargeState);
+            continue;
+        }
+        if (!SteamController::IsStateReportId(buf[0])) continue;
+        SteamControllerState state;
+        if (!SteamController::ParseStateReport(buf, n, state)) continue;
+        if (m_virtual) m_virtual->Update(state);
         m_trackpad.Update(buf, n);
     }
 }

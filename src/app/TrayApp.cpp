@@ -106,6 +106,14 @@ LRESULT TrayApp::HandleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             m_controller->SetUseLeftTrackpad(!m_controller->IsUseLeftTrackpad());
             SaveSettings();
             break;
+        case IDM_OUTPUT_X360:
+            m_controller->SetOutputMode(VirtualControllerMode::Xbox360);
+            SaveSettings();
+            break;
+        case IDM_OUTPUT_DS4:
+            m_controller->SetOutputMode(VirtualControllerMode::DualShock4);
+            SaveSettings();
+            break;
         case IDM_STARTUP:
             SetStartupEnabled(!IsStartupEnabled());
             break;
@@ -228,6 +236,14 @@ void TrayApp::LoadSettings() {
     m_controller->SetBackButtonsEnabled  (readBool(L"BackButtons",     false));
     m_controller->SetUseLeftTrackpad     (readBool(L"UseLeftTrackpad", false));
 
+    DWORD outputMode = 0, outputModeSize = sizeof(outputMode);
+    if (RegQueryValueExW(key, L"OutputMode", nullptr, nullptr,
+                         reinterpret_cast<LPBYTE>(&outputMode), &outputModeSize) == ERROR_SUCCESS) {
+        m_controller->SetOutputMode(outputMode == 1
+            ? VirtualControllerMode::DualShock4
+            : VirtualControllerMode::Xbox360);
+    }
+
     RegCloseKey(key);
 }
 
@@ -247,6 +263,9 @@ void TrayApp::SaveSettings() {
     writeBool(L"TrackpadMouse",   m_controller->IsTrackpadMouseEnabled());
     writeBool(L"BackButtons",     m_controller->IsBackButtonsEnabled());
     writeBool(L"UseLeftTrackpad", m_controller->IsUseLeftTrackpad());
+    DWORD outputMode = m_controller->GetOutputMode() == VirtualControllerMode::DualShock4 ? 1u : 0u;
+    RegSetValueExW(key, L"OutputMode", 0, REG_DWORD,
+                   reinterpret_cast<const BYTE*>(&outputMode), sizeof(outputMode));
 
     RegCloseKey(key);
 }
@@ -258,6 +277,7 @@ void TrayApp::ShowContextMenu() {
     bool backButtonsOn  = m_controller->IsBackButtonsEnabled();
     bool leftTrackpad   = m_controller->IsUseLeftTrackpad();
     bool startupOn      = IsStartupEnabled();
+    VirtualControllerMode outputMode = m_controller->GetOutputMode();
 
     HMENU menu = CreatePopupMenu();
 
@@ -275,6 +295,17 @@ void TrayApp::ShowContextMenu() {
 
     UINT leftFlags = MF_STRING | (leftTrackpad ? MF_CHECKED : MF_UNCHECKED);
     AppendMenuW(menu, leftFlags, IDM_LEFT_TRACKPAD, L"Use Left Trackpad Instead");
+
+    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+
+    HMENU outputMenu = CreatePopupMenu();
+    AppendMenuW(outputMenu,
+                MF_STRING | (outputMode == VirtualControllerMode::Xbox360 ? MF_CHECKED : MF_UNCHECKED),
+                IDM_OUTPUT_X360, L"Xbox 360");
+    AppendMenuW(outputMenu,
+                MF_STRING | (outputMode == VirtualControllerMode::DualShock4 ? MF_CHECKED : MF_UNCHECKED),
+                IDM_OUTPUT_DS4, L"DualShock 4");
+    AppendMenuW(menu, MF_POPUP | MF_STRING, reinterpret_cast<UINT_PTR>(outputMenu), L"Output Mode");
 
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
 

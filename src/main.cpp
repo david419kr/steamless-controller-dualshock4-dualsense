@@ -57,7 +57,7 @@ static void RunCalibration(SteamController& ctrl) {
     int collected = 0;
     while (collected < CALIB_FRAMES) {
         size_t n = ctrl.ReadReport(buf, sizeof(buf), 200);
-        if (n == 0 || buf[0] != SteamController::REPORT_STATE)
+        if (n == 0 || !SteamController::IsStateReportId(buf[0]))
             continue;
         if (s_reportLen == 0) s_reportLen = n;
         for (size_t i = 1; i < n; ++i)
@@ -69,10 +69,18 @@ static void RunCalibration(SteamController& ctrl) {
 
     // Apply force-show overrides before marking axes.
     auto forceShow = [](size_t i) -> bool {
-        if (FORCE_SHOW_BYTES_10_11 && (i == 10 || i == 11)) return true;
-        if (FORCE_SHOW_BYTES_12_13 && (i == 12 || i == 13)) return true;
-        if (FORCE_SHOW_BYTES_14_15 && (i == 14 || i == 15)) return true;
-        if (FORCE_SHOW_BYTES_16_17 && (i == 16 || i == 17)) return true;
+        if constexpr (FORCE_SHOW_BYTES_10_11) {
+            if (i == 10 || i == 11) return true;
+        }
+        if constexpr (FORCE_SHOW_BYTES_12_13) {
+            if (i == 12 || i == 13) return true;
+        }
+        if constexpr (FORCE_SHOW_BYTES_14_15) {
+            if (i == 14 || i == 15) return true;
+        }
+        if constexpr (FORCE_SHOW_BYTES_16_17) {
+            if (i == 16 || i == 17) return true;
+        }
         return false;
     };
 
@@ -196,7 +204,7 @@ int main() {
         if (n == 0) continue;
 
         uint8_t reportId = buf[0];
-        if (reportId == SteamController::REPORT_STATE) {
+        if (SteamController::IsStateReportId(reportId)) {
             PrintState42Diff(buf, n);
         } else {
             printf("[0x%02X %zu bytes] ", reportId, n);
