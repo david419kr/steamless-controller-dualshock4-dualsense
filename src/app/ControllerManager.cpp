@@ -325,7 +325,7 @@ void ControllerManager::UpdateTrackpadHaptics(const SteamControllerState& state)
             return;
         }
 
-        bool moved = true;
+        bool moved = false;
         if (prevActive) {
             const int dx = std::abs(static_cast<int>(x) - static_cast<int>(prevX));
             const int dy = std::abs(static_cast<int>(y) - static_cast<int>(prevY));

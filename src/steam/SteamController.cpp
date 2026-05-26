@@ -75,10 +75,10 @@ static uint16_t UnitToHapticSpeed(double value, uint16_t minimumSpeed) {
 
 static constexpr uint8_t HAPTIC_COMMAND_TICK = 1;
 static constexpr uint8_t HAPTIC_COMMAND_CLICK = 2;
-static constexpr uint16_t TRACKPAD_CLICK_PULSE_US = 3600;
-static constexpr int8_t TRACKPAD_TOUCH_GAIN_DB = -36;
-static constexpr int8_t TRACKPAD_CLICK_COMMAND_GAIN_DB = 6;
-static constexpr int16_t TRACKPAD_CLICK_PULSE_GAIN_DB = 15;
+static constexpr uint16_t TRACKPAD_CLICK_PULSE_US = 5000;
+static constexpr int8_t TRACKPAD_TOUCH_GAIN_DB = -45;
+static constexpr int8_t TRACKPAD_CLICK_COMMAND_GAIN_DB = 9;
+static constexpr int16_t TRACKPAD_CLICK_PULSE_GAIN_DB = 40;
 
 // ---------------------------------------------------------------------------
 // Open / Close
