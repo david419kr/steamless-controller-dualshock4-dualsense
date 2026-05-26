@@ -1,5 +1,6 @@
 #pragma once
 #include "BackButtonMapping.h"
+#include "HidHideController.h"
 #include "TrackpadMouse.h"
 #include "VirtualController.h"
 #include <cstdint>
@@ -34,7 +35,9 @@ public:
     void SetTrackpadDpadEnabled(bool enabled);
     void SetTrackpadDpadUseRight(bool enabled);
     void SetOutputMode(VirtualControllerMode mode);
+    void SetHideOriginalControllerEnabled(bool enabled);
     void SetBackButtonMapping(BackButtonId id, BackButtonAction action);
+    void RevealOriginalControllerNow();
 
     bool IsConnected()             const { return m_connected; }
     bool IsGameModeActive()        const { return m_gameModeActive; }
@@ -44,6 +47,8 @@ public:
     bool IsTrackpadDpadEnabled()   const { return m_trackpadDpadEnabled; }
     bool IsTrackpadDpadUseRight()  const { return m_trackpadDpadUseRight; }
     VirtualControllerMode GetOutputMode() const { return m_outputMode; }
+    bool IsHideOriginalControllerEnabled() const { return m_hideOriginalController; }
+    bool IsHidHideAvailable() const { return m_hidHide.IsInstalled(); }
     BackButtonAction GetBackButtonMapping(BackButtonId id) const { return m_backButtonMappings.Get(id); }
     BackButtonMappings GetBackButtonMappings() const { return m_backButtonMappings; }
     bool HasBackButtonMappings() const { return m_backButtonMappings.AnyAssigned(); }
@@ -82,8 +87,11 @@ private:
     int16_t                            m_prevHapticRightY     = 0;
     std::chrono::steady_clock::time_point m_lastHapticLeftPulse{};
     std::chrono::steady_clock::time_point m_lastHapticRightPulse{};
+    bool                               m_hideOriginalController = true;
+    bool                               m_originalHidden       = false;
     VirtualControllerMode              m_outputMode           = VirtualControllerMode::Xbox360;
     BackButtonMappings                 m_backButtonMappings;
+    HidHideController                  m_hidHide;
     std::unique_ptr<VirtualController> m_virtual;
     TrackpadMouse                      m_trackpad;
     std::thread                        m_readThread;

@@ -38,6 +38,7 @@ static uint8_t TrackpadDpadMask(int16_t x, int16_t y, bool active) {
 ControllerManager::ControllerManager(StateChangedFn onStateChanged)
     : m_onStateChanged(std::move(onStateChanged))
 {
+    m_hidHide.EnsureAppRegistered();
     TryOpen();
 }
 
@@ -59,6 +60,10 @@ void ControllerManager::EnableGameMode() {
         g_ctrl->EnableLizardMode();
         return;
     }
+    if (m_hideOriginalController && m_hidHide.IsInstalled() && !m_originalHidden) {
+        if (m_hidHide.HideSteamController())
+            m_originalHidden = true;
+    }
 
     m_virtual = std::make_unique<VirtualController>(
         m_outputMode,
@@ -75,6 +80,10 @@ void ControllerManager::EnableGameMode() {
         m_virtual.reset();
         g_ctrl->SetImuEnabled(false);
         g_ctrl->EnableLizardMode();
+        if (m_originalHidden) {
+            m_hidHide.RevealSteamController();
+            m_originalHidden = false;
+        }
         if (missing) m_onStateChanged(m_connected, m_gameModeActive, /*vigemMissing=*/true);
         return;
     }
@@ -95,6 +104,10 @@ void ControllerManager::DisableGameMode() {
     m_virtual.reset();
     g_ctrl->SetImuEnabled(false);
     g_ctrl->EnableLizardMode();
+    if (m_originalHidden) {
+        m_hidHide.RevealSteamController();
+        m_originalHidden = false;
+    }
     m_gameModeActive = false;
     m_onStateChanged(m_connected, m_gameModeActive, false);
 }
@@ -146,12 +159,33 @@ void ControllerManager::SetOutputMode(VirtualControllerMode mode) {
         ApplyTrackpadRuntimeSettings();
 }
 
+void ControllerManager::SetHideOriginalControllerEnabled(bool enabled) {
+    if (m_hideOriginalController == enabled) return;
+    m_hideOriginalController = enabled;
+
+    if (!m_gameModeActive || !m_hidHide.IsInstalled())
+        return;
+
+    if (enabled) {
+        if (m_hidHide.HideSteamController())
+            m_originalHidden = true;
+    } else if (m_originalHidden) {
+        m_hidHide.RevealSteamController();
+        m_originalHidden = false;
+    }
+}
+
 void ControllerManager::SetBackButtonMapping(BackButtonId id, BackButtonAction action) {
     if (m_backButtonMappings.Get(id) == action)
         return;
 
     m_backButtonMappings.Set(id, action);
     ApplyTrackpadRuntimeSettings();
+}
+
+void ControllerManager::RevealOriginalControllerNow() {
+    if (m_hidHide.RevealSteamControllerNow())
+        m_originalHidden = false;
 }
 
 bool ControllerManager::IsTrackpadDpadActive() const {
@@ -357,6 +391,10 @@ void ControllerManager::Close(bool restoreLizard) {
         if (restoreLizard && m_gameModeActive)
             g_ctrl->EnableLizardMode();
         g_ctrl->Close();
+    }
+    if (m_originalHidden) {
+        m_hidHide.RevealSteamController();
+        m_originalHidden = false;
     }
     m_connected      = false;
     m_gameModeActive = false;
