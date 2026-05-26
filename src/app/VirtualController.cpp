@@ -262,6 +262,11 @@ void VirtualController::SetBatteryState(uint8_t levelPercent, uint8_t chargeStat
     m_ds4BatterySpecial = static_cast<uint8_t>(0x10 | m_ds4BatteryLevel);
 }
 
+void VirtualController::SetTrackpadMouseClaim(bool enabled, bool useLeftTrackpad) {
+    m_trackpadMouseEnabled = enabled;
+    m_useLeftTrackpadForMouse = useLeftTrackpad;
+}
+
 void VirtualController::Update(const SteamControllerState& state) {
     if (!m_valid) return;
 
@@ -321,10 +326,16 @@ void VirtualController::Update(const SteamControllerState& state) {
         }
         report.Report.wTimestamp = m_ds4Timestamp;
 
-        const bool rightTouching = (b2 & SteamController::BTN_TP_RT) != 0;
-        const bool leftTouching = (b3 & SteamController::BTN_TP_LT) != 0;
-        const bool rightClick = (b2 & 0x40) != 0;
-        const bool leftClick = (b3 & SteamController::BTN_TP_LT_CLICK) != 0;
+        const bool rawRightTouching = (b2 & SteamController::BTN_TP_RT) != 0;
+        const bool rawLeftTouching = (b3 & SteamController::BTN_TP_LT) != 0;
+        const bool rawRightClick = (b2 & 0x40) != 0;
+        const bool rawLeftClick = (b3 & SteamController::BTN_TP_LT_CLICK) != 0;
+        const bool suppressRightTouch = m_trackpadMouseEnabled && !m_useLeftTrackpadForMouse;
+        const bool suppressLeftTouch = m_trackpadMouseEnabled && m_useLeftTrackpadForMouse;
+        const bool rightTouching = rawRightTouching && !suppressRightTouch;
+        const bool leftTouching = rawLeftTouching && !suppressLeftTouch;
+        const bool rightClick = rawRightClick && !suppressRightTouch;
+        const bool leftClick = rawLeftClick && !suppressLeftTouch;
         if (rightClick || leftClick)
             report.Report.bSpecial |= DS4_SPECIAL_BUTTON_TOUCHPAD;
 
@@ -339,12 +350,12 @@ void VirtualController::Update(const SteamControllerState& state) {
         touch.bPacketCounter = ++m_touchPacketCounter;
         touch.bIsUpTrackingNum1 = static_cast<uint8_t>(m_rightTracking | (rightTouching ? 0x00 : 0x80));
         PackDs4Touch(touch.bTouchData1,
-                     NormalizePadAxis(state.rightPadX, 1919, false),
-                     NormalizePadAxis(state.rightPadY, 942, true));
+                     rightTouching ? NormalizePadAxis(state.rightPadX, 1919, false) : 0,
+                     rightTouching ? NormalizePadAxis(state.rightPadY, 942, true) : 0);
         touch.bIsUpTrackingNum2 = static_cast<uint8_t>(m_leftTracking | (leftTouching ? 0x00 : 0x80));
         PackDs4Touch(touch.bTouchData2,
-                     NormalizePadAxis(state.leftPadX, 1919, false),
-                     NormalizePadAxis(state.leftPadY, 942, true));
+                     leftTouching ? NormalizePadAxis(state.leftPadX, 1919, false) : 0,
+                     leftTouching ? NormalizePadAxis(state.leftPadY, 942, true) : 0);
         report.Report.bTouchPacketsN = 1;
         report.Report.sPreviousTouch[0] = touch;
         report.Report.sPreviousTouch[1] = touch;

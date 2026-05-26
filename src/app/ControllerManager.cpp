@@ -63,6 +63,7 @@ void ControllerManager::EnableGameMode() {
     m_trackpad.SetTrackpadEnabled(m_trackpadMouseEnabled);
     m_trackpad.SetBackButtonsEnabled(m_backButtonsEnabled);
     m_trackpad.SetUseLeftTrackpad(m_useLeftTrackpad);
+    m_virtual->SetTrackpadMouseClaim(m_trackpadMouseEnabled, m_useLeftTrackpad);
     StartReadLoop();
     m_onStateChanged(m_connected, m_gameModeActive, false);
 }
@@ -85,6 +86,8 @@ void ControllerManager::DisableGameMode() {
 void ControllerManager::SetTrackpadMouseEnabled(bool enabled) {
     m_trackpadMouseEnabled = enabled;
     m_trackpad.SetTrackpadEnabled(enabled);
+    if (m_virtual)
+        m_virtual->SetTrackpadMouseClaim(m_trackpadMouseEnabled, m_useLeftTrackpad);
 }
 
 void ControllerManager::SetBackButtonsEnabled(bool enabled) {
@@ -95,6 +98,8 @@ void ControllerManager::SetBackButtonsEnabled(bool enabled) {
 void ControllerManager::SetUseLeftTrackpad(bool enabled) {
     m_useLeftTrackpad = enabled;
     m_trackpad.SetUseLeftTrackpad(enabled);
+    if (m_virtual)
+        m_virtual->SetTrackpadMouseClaim(m_trackpadMouseEnabled, m_useLeftTrackpad);
 }
 
 void ControllerManager::SetOutputMode(VirtualControllerMode mode) {

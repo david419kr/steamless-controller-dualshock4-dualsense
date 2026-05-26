@@ -298,14 +298,16 @@ void TrayApp::ShowContextMenu() {
 
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
 
+    HMENU trackpadMenu = CreatePopupMenu();
     UINT trackpadFlags = MF_STRING | (trackpadOn ? MF_CHECKED : MF_UNCHECKED);
-    AppendMenuW(menu, trackpadFlags, IDM_TRACKPAD, L"Enable Trackpad Mouse");
+    AppendMenuW(trackpadMenu, trackpadFlags, IDM_TRACKPAD, L"Enable Trackpad Mouse");
 
     UINT backFlags = MF_STRING | (backButtonsOn ? MF_CHECKED : MF_UNCHECKED);
-    AppendMenuW(menu, backFlags, IDM_BACKBUTTONS, L"Enable Back Buttons for Clicking");
+    AppendMenuW(trackpadMenu, backFlags, IDM_BACKBUTTONS, L"Enable Back Buttons for Clicking");
 
     UINT leftFlags = MF_STRING | (leftTrackpad ? MF_CHECKED : MF_UNCHECKED);
-    AppendMenuW(menu, leftFlags, IDM_LEFT_TRACKPAD, L"Use Left Trackpad Instead");
+    AppendMenuW(trackpadMenu, leftFlags, IDM_LEFT_TRACKPAD, L"Use Left Trackpad Instead");
+    AppendMenuW(menu, MF_POPUP | MF_STRING, reinterpret_cast<UINT_PTR>(trackpadMenu), L"Trackpad Settings");
 
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
 
