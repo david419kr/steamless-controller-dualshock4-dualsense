@@ -76,6 +76,11 @@ public:
     static constexpr uint8_t CMD_SET_SETTINGS           = 0x87;
     static constexpr uint8_t CMD_GET_SETTINGS           = 0x89;
 
+    // Triton output report IDs.
+    static constexpr uint8_t OUT_HAPTIC_RUMBLE          = 0x80;
+    static constexpr uint8_t OUT_HAPTIC_PULSE           = 0x81;
+    static constexpr uint8_t OUT_HAPTIC_COMMAND         = 0x82;
+
     // Setting key IDs (go in the payload of CMD_SET_SETTINGS)
     static constexpr uint8_t SETTING_RIGHT_TRACKPAD_MODE = 0x07;
     static constexpr uint8_t SETTING_LEFT_TRACKPAD_MODE  = 0x08;
@@ -182,7 +187,7 @@ public:
     bool SetImuEnabled(bool enabled);
     void SetRumble(uint8_t largeMotor, uint8_t smallMotor);
     void SetDs4EnhancedRumble(uint8_t largeMotor, uint8_t smallMotor);
-    void SetTrackpadHaptics(bool leftTouch, bool rightTouch, bool leftClickPulse, bool rightClickPulse);
+    void PulseTrackpadHaptic(bool left, bool strongClick);
     void ClearTrackpadHaptics();
     void MaintainRumble();
 
@@ -195,6 +200,8 @@ private:
     void HeartbeatLoop();
     RumbleFrame CurrentRumbleFrameLocked(std::chrono::steady_clock::time_point now) const;
     bool SendRumbleOutput(uint16_t leftSpeed, uint16_t rightSpeed);
+    bool SendTrackpadPulseOutput(uint8_t side, uint16_t onUs, uint16_t offUs, uint16_t repeatCount, int16_t gainDb);
+    bool SendTrackpadCommandOutput(uint8_t side, uint8_t command, int8_t gainDb);
 
     HidDevice       m_device;
     std::thread     m_heartbeat;
@@ -206,11 +213,6 @@ private:
     uint16_t        m_rumbleBoostLeft = 0;
     uint16_t        m_rumbleBoostRight = 0;
     std::chrono::steady_clock::time_point m_rumbleBoostUntil{};
-    uint16_t        m_trackpadTouchLeft = 0;
-    uint16_t        m_trackpadTouchRight = 0;
-    uint16_t        m_trackpadClickLeft = 0;
-    uint16_t        m_trackpadClickRight = 0;
-    std::chrono::steady_clock::time_point m_trackpadClickUntil{};
     std::chrono::steady_clock::time_point m_lastRumbleSent{};
     uint8_t         m_lastDs4LargeMotor = 0;
     uint8_t         m_lastDs4SmallMotor = 0;

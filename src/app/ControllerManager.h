@@ -5,6 +5,7 @@
 #include <functional>
 #include <thread>
 #include <atomic>
+#include <chrono>
 #include <memory>
 
 // Manages the Steam Controller lifecycle: device discovery, lizard mode
@@ -70,6 +71,14 @@ private:
     bool                               m_trackpadDpadUseRight = false;
     bool                               m_prevHapticLeftClick  = false;
     bool                               m_prevHapticRightClick = false;
+    bool                               m_prevHapticLeftTouch  = false;
+    bool                               m_prevHapticRightTouch = false;
+    int16_t                            m_prevHapticLeftX      = 0;
+    int16_t                            m_prevHapticLeftY      = 0;
+    int16_t                            m_prevHapticRightX     = 0;
+    int16_t                            m_prevHapticRightY     = 0;
+    std::chrono::steady_clock::time_point m_lastHapticLeftPulse{};
+    std::chrono::steady_clock::time_point m_lastHapticRightPulse{};
     bool                               m_hideOriginalController = true;
     bool                               m_originalHidden       = false;
     VirtualControllerMode              m_outputMode           = VirtualControllerMode::Xbox360;

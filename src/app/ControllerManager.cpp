@@ -1,6 +1,7 @@
 #include "ControllerManager.h"
 #include "VirtualController.h"
 #include "steam/SteamController.h"
+#include <cstdlib>
 #include <memory>
 
 static std::unique_ptr<SteamController> g_ctrl;
@@ -189,6 +190,8 @@ void ControllerManager::ApplyTrackpadRuntimeSettings() {
 
     m_prevHapticLeftClick = false;
     m_prevHapticRightClick = false;
+    m_prevHapticLeftTouch = false;
+    m_prevHapticRightTouch = false;
     if (g_ctrl && m_gameModeActive)
         g_ctrl->ClearTrackpadHaptics();
 
@@ -257,14 +260,64 @@ void ControllerManager::UpdateTrackpadHaptics(const SteamControllerState& state)
 
     const bool leftClickNow = leftClickEligible && rawLeftClick;
     const bool rightClickNow = rightClickEligible && rawRightClick;
-    const bool leftClickPulse = leftClickNow && !m_prevHapticLeftClick;
-    const bool rightClickPulse = rightClickNow && !m_prevHapticRightClick;
+    const bool leftClickPulse = leftClickNow != m_prevHapticLeftClick;
+    const bool rightClickPulse = rightClickNow != m_prevHapticRightClick;
 
     m_prevHapticLeftClick = leftClickNow;
     m_prevHapticRightClick = rightClickNow;
 
-    g_ctrl->SetTrackpadHaptics(leftTouchHaptic, rightTouchHaptic,
-                               leftClickPulse, rightClickPulse);
+    constexpr int MOVE_PULSE_THRESHOLD = 1800;
+    constexpr auto MOVE_PULSE_INTERVAL = std::chrono::milliseconds(22);
+    const auto now = std::chrono::steady_clock::now();
+
+    auto pulseTouchIfMoved = [&](bool left,
+                                 bool active,
+                                 int16_t x,
+                                 int16_t y,
+                                 bool& prevActive,
+                                 int16_t& prevX,
+                                 int16_t& prevY,
+                                 std::chrono::steady_clock::time_point& lastPulse,
+                                 bool skipForClick) {
+        if (!active) {
+            prevActive = false;
+            return;
+        }
+
+        bool moved = true;
+        if (prevActive) {
+            const int dx = std::abs(static_cast<int>(x) - static_cast<int>(prevX));
+            const int dy = std::abs(static_cast<int>(y) - static_cast<int>(prevY));
+            moved = dx + dy >= MOVE_PULSE_THRESHOLD;
+        }
+
+        if (moved && !skipForClick && now - lastPulse >= MOVE_PULSE_INTERVAL) {
+            g_ctrl->PulseTrackpadHaptic(left, false);
+            lastPulse = now;
+            prevX = x;
+            prevY = y;
+        } else if (!prevActive) {
+            prevX = x;
+            prevY = y;
+        }
+        prevActive = true;
+    };
+
+    if (leftClickPulse) {
+        g_ctrl->PulseTrackpadHaptic(true, true);
+        m_lastHapticLeftPulse = now;
+    }
+    if (rightClickPulse) {
+        g_ctrl->PulseTrackpadHaptic(false, true);
+        m_lastHapticRightPulse = now;
+    }
+
+    pulseTouchIfMoved(true, leftTouchHaptic, state.leftPadX, state.leftPadY,
+                      m_prevHapticLeftTouch, m_prevHapticLeftX, m_prevHapticLeftY,
+                      m_lastHapticLeftPulse, leftClickPulse);
+    pulseTouchIfMoved(false, rightTouchHaptic, state.rightPadX, state.rightPadY,
+                      m_prevHapticRightTouch, m_prevHapticRightX, m_prevHapticRightY,
+                      m_lastHapticRightPulse, rightClickPulse);
 }
 
 void ControllerManager::TryOpen() {

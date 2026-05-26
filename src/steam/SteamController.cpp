@@ -73,9 +73,12 @@ static uint16_t UnitToHapticSpeed(double value, uint16_t minimumSpeed) {
     return static_cast<uint16_t>(std::clamp<int>(static_cast<int>(std::lround(speed)), 0, 0xFFFF));
 }
 
-static constexpr uint16_t TRACKPAD_TOUCH_HAPTIC_SPEED = 0x1800;
-static constexpr uint16_t TRACKPAD_CLICK_HAPTIC_SPEED = 0xD000;
-static constexpr auto TRACKPAD_CLICK_HAPTIC_DURATION = std::chrono::milliseconds(55);
+static constexpr uint8_t HAPTIC_COMMAND_TICK = 1;
+static constexpr uint8_t HAPTIC_COMMAND_CLICK = 2;
+static constexpr uint16_t TRACKPAD_CLICK_PULSE_US = 3600;
+static constexpr int8_t TRACKPAD_TOUCH_GAIN_DB = -36;
+static constexpr int8_t TRACKPAD_CLICK_COMMAND_GAIN_DB = 6;
+static constexpr int16_t TRACKPAD_CLICK_PULSE_GAIN_DB = 15;
 
 // ---------------------------------------------------------------------------
 // Open / Close
@@ -354,107 +357,34 @@ SteamController::RumbleFrame SteamController::CurrentRumbleFrameLocked(std::chro
         if (m_rumbleBoostRight > frame.right)
             frame.right = m_rumbleBoostRight;
     }
-    if (m_trackpadTouchLeft > frame.left)
-        frame.left = m_trackpadTouchLeft;
-    if (m_trackpadTouchRight > frame.right)
-        frame.right = m_trackpadTouchRight;
-    if (m_trackpadClickUntil > now) {
-        if (m_trackpadClickLeft > frame.left)
-            frame.left = m_trackpadClickLeft;
-        if (m_trackpadClickRight > frame.right)
-            frame.right = m_trackpadClickRight;
-    }
     return frame;
 }
 
-void SteamController::SetTrackpadHaptics(bool leftTouch, bool rightTouch, bool leftClickPulse, bool rightClickPulse) {
-    const auto now = std::chrono::steady_clock::now();
-    const uint16_t touchLeft = leftTouch ? TRACKPAD_TOUCH_HAPTIC_SPEED : 0;
-    const uint16_t touchRight = rightTouch ? TRACKPAD_TOUCH_HAPTIC_SPEED : 0;
-    bool shouldSend = leftClickPulse || rightClickPulse;
-    RumbleFrame frame{};
-
-    {
-        std::lock_guard<std::mutex> lock(m_rumbleMutex);
-        if ((m_trackpadClickLeft != 0 || m_trackpadClickRight != 0) &&
-            m_trackpadClickUntil <= now) {
-            m_trackpadClickLeft = 0;
-            m_trackpadClickRight = 0;
-            m_trackpadClickUntil = {};
-        }
-
-        shouldSend = shouldSend ||
-                     touchLeft != m_trackpadTouchLeft ||
-                     touchRight != m_trackpadTouchRight;
-
-        m_trackpadTouchLeft = touchLeft;
-        m_trackpadTouchRight = touchRight;
-
-        if (leftClickPulse) {
-            m_trackpadClickLeft = TRACKPAD_CLICK_HAPTIC_SPEED;
-            m_trackpadClickUntil = now + TRACKPAD_CLICK_HAPTIC_DURATION;
-        }
-        if (rightClickPulse) {
-            m_trackpadClickRight = TRACKPAD_CLICK_HAPTIC_SPEED;
-            m_trackpadClickUntil = now + TRACKPAD_CLICK_HAPTIC_DURATION;
-        }
-
-        frame = CurrentRumbleFrameLocked(now);
-        if (shouldSend)
-            m_lastRumbleSent = now;
-    }
-
-    if (shouldSend)
-        SendRumbleOutput(frame.left, frame.right);
+void SteamController::PulseTrackpadHaptic(bool left, bool strongClick) {
+    const uint8_t side = left ? 0x01 : 0x02;
+    const uint8_t command = strongClick ? HAPTIC_COMMAND_CLICK : HAPTIC_COMMAND_TICK;
+    const int8_t gainDb = strongClick ? TRACKPAD_CLICK_COMMAND_GAIN_DB : TRACKPAD_TOUCH_GAIN_DB;
+    SendTrackpadCommandOutput(side, command, gainDb);
+    if (strongClick)
+        SendTrackpadPulseOutput(side, TRACKPAD_CLICK_PULSE_US, 0, 1, TRACKPAD_CLICK_PULSE_GAIN_DB);
 }
 
 void SteamController::ClearTrackpadHaptics() {
-    RumbleFrame frame{};
-    bool shouldSend = false;
-    const auto now = std::chrono::steady_clock::now();
-
-    {
-        std::lock_guard<std::mutex> lock(m_rumbleMutex);
-        shouldSend = m_trackpadTouchLeft != 0 ||
-                     m_trackpadTouchRight != 0 ||
-                     m_trackpadClickLeft != 0 ||
-                     m_trackpadClickRight != 0;
-
-        m_trackpadTouchLeft = 0;
-        m_trackpadTouchRight = 0;
-        m_trackpadClickLeft = 0;
-        m_trackpadClickRight = 0;
-        m_trackpadClickUntil = {};
-
-        frame = CurrentRumbleFrameLocked(now);
-        if (shouldSend)
-            m_lastRumbleSent = now;
-    }
-
-    if (shouldSend)
-        SendRumbleOutput(frame.left, frame.right);
+    // Haptic pulse reports are one-shots; there is no persistent trackpad state
+    // to cancel here. Kept as a lifecycle hook for callers.
 }
 
 void SteamController::MaintainRumble() {
     RumbleFrame frame{};
-    bool clickExpired = false;
     {
         std::lock_guard<std::mutex> lock(m_rumbleMutex);
         const auto now = std::chrono::steady_clock::now();
 
-        if ((m_trackpadClickLeft != 0 || m_trackpadClickRight != 0) &&
-            m_trackpadClickUntil <= now) {
-            m_trackpadClickLeft = 0;
-            m_trackpadClickRight = 0;
-            m_trackpadClickUntil = {};
-            clickExpired = true;
-        }
-
         frame = CurrentRumbleFrameLocked(now);
-        if (frame.left == 0 && frame.right == 0 && !clickExpired)
+        if (frame.left == 0 && frame.right == 0)
             return;
 
-        if (!clickExpired && now - m_lastRumbleSent < std::chrono::milliseconds(40))
+        if (now - m_lastRumbleSent < std::chrono::milliseconds(40))
             return;
 
         m_lastRumbleSent = now;
@@ -468,7 +398,7 @@ bool SteamController::SendRumbleOutput(uint16_t leftSpeed, uint16_t rightSpeed) 
         return false;
 
     uint8_t buf[10] = {};
-    buf[0] = 0x80; // ID_OUT_REPORT_HAPTIC_RUMBLE
+    buf[0] = OUT_HAPTIC_RUMBLE;
     buf[1] = 0x00; // type
     WriteU16LE(buf + 2, 0x0000); // intensity
     WriteU16LE(buf + 4, leftSpeed);
@@ -480,6 +410,39 @@ bool SteamController::SendRumbleOutput(uint16_t leftSpeed, uint16_t rightSpeed) 
     return m_device.SendOutputReport(buf, sizeof(buf));
 }
 
+bool SteamController::SendTrackpadPulseOutput(uint8_t side,
+                                              uint16_t onUs,
+                                              uint16_t offUs,
+                                              uint16_t repeatCount,
+                                              int16_t gainDb) {
+    if (!m_device.IsOpen())
+        return false;
+
+    uint8_t buf[10] = {};
+    buf[0] = OUT_HAPTIC_PULSE;
+    buf[1] = side;
+    WriteU16LE(buf + 2, onUs);
+    WriteU16LE(buf + 4, offUs);
+    WriteU16LE(buf + 6, repeatCount);
+    WriteU16LE(buf + 8, static_cast<uint16_t>(gainDb));
+
+    std::lock_guard<std::mutex> lock(m_writeMutex);
+    return m_device.SendOutputReport(buf, sizeof(buf));
+}
+
+bool SteamController::SendTrackpadCommandOutput(uint8_t side, uint8_t command, int8_t gainDb) {
+    if (!m_device.IsOpen())
+        return false;
+
+    uint8_t buf[4] = {};
+    buf[0] = OUT_HAPTIC_COMMAND;
+    buf[1] = side;
+    buf[2] = command;
+    buf[3] = static_cast<uint8_t>(gainDb);
+
+    std::lock_guard<std::mutex> lock(m_writeMutex);
+    return m_device.SendOutputReport(buf, sizeof(buf));
+}
 
 // ---------------------------------------------------------------------------
 // Heartbeat
