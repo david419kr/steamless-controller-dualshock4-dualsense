@@ -11,6 +11,7 @@
 - [최신 릴리즈](https://github.com/david419kr/steamless-controller-dualshock4/releases/latest)에서 `SteamlessController.exe`를 내려받아 바로 실행하면 됩니다. 별도 설치가 필요 없는 단일 exe 파일입니다.
 - DualShock 4 모드는 버튼, 스틱, 트리거, 네이티브 자이로/가속도, 터치패드 출력, 진동, 일부 향상된 Steam Controller 햅틱을 지원합니다.
 - HidHide와 DualShock 4 모드를 함께 사용하여 Steam에서 **Pragmata**의 네이티브 자이로 조작이 동작하는 것을 확인했습니다.
+- Steam 외 사용처로 **Cemu**에서도 네이티브 자이로 입력이 동작하는 것을 확인했습니다.
 - L4/L5/R4/R5 백버튼 단일 버튼 할당을 지원합니다.
 
 ## 간단 사용 순서
