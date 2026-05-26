@@ -12,7 +12,7 @@ This fork adds DualShock 4 output support to SteamlessController, mainly for usi
 - Might also need [Microsoft Visual C++ Redistributable 2015-2022 x64](https://aka.ms/vc14/vc_redist.x64.exe), if the app does not open.
 - Download `SteamlessController.exe` from the [latest release](https://github.com/david419kr/steamless-controller-dualshock4/releases/latest) and run it directly; it is a single exe and does not need installation.
 - With HidHide enabled, Steam can see the virtual DualShock 4 instead of the original Steam Controller, allowing native DualShock 4 input paths in supported games.
-- DualShock 4 mode supports buttons, sticks, triggers, native gyro/accelerometer output, touchpad output, rumble, and some of enhanced Steam Controller haptics.
+- DualShock 4 mode supports buttons, sticks, triggers, native gyro/accelerometer output, touchpad output, rumble, and some of enhanced Steam Controller built-in trackpad haptics.
 - HidHide + DualShock 4 mode has been tested in Steam with native gyro controls working in **Pragmata**.
 - Native gyro input has also been tested outside Steam in **Cemu**.
 - L4/L5/R4/R5 back-button mapping is supported.
