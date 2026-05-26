@@ -1,3 +1,18 @@
+# SteamlessController DualShock 4 Fork
+
+This fork adds DualShock 4 output support to SteamlessController, mainly for using a Steam Controller as a native DualShock 4-compatible controller in Steam games.
+
+## Fork Notes
+
+- Requires the latest [ViGEmBus driver](https://github.com/nefarius/ViGEmBus/releases/latest).
+- For Steam usage, install [HidHide](https://github.com/nefarius/HidHide/releases/latest) so SteamlessController can hide the physical Steam Controller/Puck while Steamless Mode is active.
+- With HidHide enabled, Steam can see the virtual DualShock 4 instead of the original Steam Controller, allowing native DualShock 4 input paths in supported games.
+- DualShock 4 mode supports buttons, sticks, triggers, native gyro/accelerometer output, touchpad output, rumble, and some of enhanced Steam Controller haptics.
+- HidHide + DualShock 4 mode has been tested in Steam with native gyro controls working in **Pragmata**.
+- L4/L5/R4/R5 back-button mapping is supported.
+
+---
+
 # SteamlessController
 
 A lightweight Windows system tray app that lets you use a **Steam Controller** as a standard gamepad — without Steam running.
@@ -9,9 +24,7 @@ When **Steamless Mode** is active, the app disables the controller's built-in ke
 ## Features
 
 - System tray icon shows connection and mode status
-- **Steamless Mode** — disables lizard mode and exposes controller as an Xbox 360 or DualShock 4 gamepad
-- **DualShock 4 output mode** — forwards buttons, sticks, triggers, native gyro/accelerometer motion, touchpad contacts, and rumble
-- **Hide Original Controller** — optionally uses HidHide to hide the physical Steam Controller while Steamless Mode is active
+- **Steamless Mode** — disables lizard mode and exposes controller as Xbox 360 gamepad
 - **Trackpad Mouse** — use the right (or left) trackpad as a mouse cursor
 - **Back Buttons for Clicking** — map R4/R5 (or L4/L5) to left/right mouse click
 - **Use Left Trackpad Instead** — mirror all trackpad/back-button functionality to the left side for left-handed users
@@ -26,8 +39,7 @@ When **Steamless Mode** is active, the app disables the controller's built-in ke
 
 ### To run
 - Windows 10 or later (64-bit)
-- [ViGEmBus](https://github.com/nefarius/ViGEmBus/releases/latest) driver installed (1.22.0 or newer recommended for full DualShock 4 motion/touch support)
-- [HidHide](https://github.com/nefarius/HidHide) driver installed for automatic hiding of the physical controller (optional)
+- [ViGEmBus](https://github.com/nefarius/ViGEmBus/releases/latest) driver installed
 - Steam Controller (VID `0x28DE` / PID `0x1302`)
 - Steam **closed** (Steam claims the controller when running)
 
@@ -66,9 +78,9 @@ cmake --build build/release --config Release --target SteamlessController
 
 ## How it works
 
-The Steam Controller exposes a vendor HID collection (usage page `0xFF00`) that carries all game input in state reports (ID `0x42` or `0x45`, depending on firmware/connection path). By default the firmware runs in **lizard mode**, emulating a keyboard and mouse so the controller works without drivers.
+The Steam Controller exposes a vendor HID collection (usage page `0xFF00`) that carries all game input in a 54-byte report (ID `0x42`) at ~60 Hz. By default the firmware runs in **lizard mode**, emulating a keyboard and mouse so the controller works without drivers.
 
-SteamlessController sends HID feature reports to disable lizard mode, then reads the raw input reports and translates them into a virtual Xbox 360 or DualShock 4 controller via ViGEmBus. In DualShock 4 mode it also enables raw IMU reports, maps the Steam Controller gyro/accelerometer fields into the DS4 extended report, maps both trackpads into DS4 touch contacts, and forwards virtual-controller rumble back to the Steam Controller haptics.
+SteamlessController sends HID feature reports to disable lizard mode, then reads the raw input reports and translates them into a virtual Xbox 360 controller via ViGEmBus. A background heartbeat re-sends the disable command every 800 ms to keep lizard mode off.
 
 The full input report layout is documented in [`src/steam/SteamController.h`](src/steam/SteamController.h).
 
