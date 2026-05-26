@@ -30,7 +30,7 @@ void ControllerManager::EnableGameMode() {
         g_ctrl->EnableLizardMode();
         return;
     }
-    if (m_hideOriginalController && m_hidHide.IsInstalled()) {
+    if (m_hideOriginalController && m_hidHide.IsInstalled() && !m_originalHidden) {
         if (m_hidHide.HideSteamController())
             m_originalHidden = true;
     }

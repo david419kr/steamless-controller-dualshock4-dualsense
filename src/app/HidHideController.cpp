@@ -19,6 +19,10 @@ static std::wstring QuoteArg(const std::wstring& arg) {
     return quoted;
 }
 
+static bool IsCliSwitch(const std::wstring& arg) {
+    return arg.rfind(L"--", 0) == 0;
+}
+
 static std::wstring CurrentExePath() {
     std::wstring path(MAX_PATH, L'\0');
     DWORD len = GetModuleFileNameW(nullptr, path.data(), static_cast<DWORD>(path.size()));
@@ -59,6 +63,11 @@ static bool IsSteamControllerInstanceId(const std::wstring& id) {
          || upper.find(L"PID_1304") != std::wstring::npos);
 }
 
+static bool IsSteamControllerHidInstanceId(const std::wstring& id) {
+    std::wstring upper = ToUpper(id);
+    return upper.rfind(L"HID\\", 0) == 0 && IsSteamControllerInstanceId(upper);
+}
+
 static void AddUnique(std::vector<std::wstring>& ids, std::wstring id) {
     if (std::find(ids.begin(), ids.end(), id) == ids.end())
         ids.push_back(std::move(id));
@@ -82,7 +91,7 @@ static std::vector<std::wstring> EnumeratePresentSteamControllerPnPInstanceIds()
             continue;
 
         std::wstring id(instanceId);
-        if (IsSteamControllerInstanceId(id))
+        if (IsSteamControllerHidInstanceId(id))
             AddUnique(ids, std::move(id));
     }
 
@@ -137,7 +146,7 @@ bool HidHideController::RunCli(const std::vector<std::wstring>& args, std::wstri
     std::wstring command = QuoteArg(m_cliPath);
     for (const auto& arg : args) {
         command += L' ';
-        command += QuoteArg(arg);
+        command += IsCliSwitch(arg) ? arg : QuoteArg(arg);
     }
 
     SECURITY_ATTRIBUTES sa{};
@@ -180,8 +189,12 @@ bool HidHideController::RunCli(const std::vector<std::wstring>& args, std::wstri
     CloseHandle(pi.hProcess);
     CloseHandle(readPipe);
 
+    const std::wstring wideOutput = Utf8ToWide(bytes);
     if (output)
-        *output = Utf8ToWide(bytes);
+        *output = wideOutput;
+
+    if (wideOutput.find(L"The command is not recognized") != std::wstring::npos)
+        return false;
 
     if (exitCode != 0)
         printf("[HidHide] CLI failed with exit code %lu\n", exitCode);
@@ -274,10 +287,11 @@ bool HidHideController::HideSteamController() {
 
     std::vector<std::wstring> hiddenIds;
     for (const auto& id : ids) {
-        if (RunCli({L"--dev-hide", id}))
+        if (RunCli({L"--dev-hide", id})) {
             hiddenIds.push_back(id);
-        else
+        } else {
             wprintf(L"[HidHide] failed to hide %s\n", id.c_str());
+        }
     }
 
     if (hiddenIds.empty())
