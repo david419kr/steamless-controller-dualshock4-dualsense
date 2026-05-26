@@ -14,6 +14,7 @@ add_library(SteamController STATIC
 )
 target_include_directories(SteamController PUBLIC src)
 target_link_libraries(SteamController PUBLIC hid setupapi)
+target_link_libraries(SteamController PUBLIC cfgmgr32)
 if (MSVC)
     target_compile_options(SteamController PRIVATE /W4 /WX)
 endif()
@@ -54,6 +55,7 @@ add_executable(SteamlessController WIN32
     src/app/main.cpp
     src/app/TrayApp.cpp
     src/app/ControllerManager.cpp
+    src/app/HidHideController.cpp
     src/app/VirtualController.cpp
     src/app/TrackpadMouse.cpp
     resources/app.rc
