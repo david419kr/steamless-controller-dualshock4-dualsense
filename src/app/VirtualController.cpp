@@ -2,8 +2,11 @@
 #include "steam/SteamController.h"
 #include <ViGEm/Client.h>
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <thread>
 #include <utility>
 
 static_assert(sizeof(DS4_REPORT_EX) == 63, "DS4_REPORT_EX must match the DS4 USB input report payload size");
@@ -69,6 +72,26 @@ static DS4_DPAD_DIRECTIONS DpadDirection(const SteamControllerState& state) {
     return DS4_BUTTON_DPAD_NONE;
 }
 
+static bool ParseDs4OutputRumble(const DS4_OUTPUT_BUFFER& output,
+                                 uint8_t& largeMotor,
+                                 uint8_t& smallMotor) {
+    const uint8_t* b = output.Buffer;
+
+    if (b[0] == 0x05) {
+        smallMotor = b[3];
+        largeMotor = b[4];
+        return true;
+    }
+
+    if (b[0] == 0x11) {
+        smallMotor = b[6];
+        largeMotor = b[7];
+        return true;
+    }
+
+    return false;
+}
+
 static XUSB_REPORT TranslateXusb(const SteamControllerState& state) {
     XUSB_REPORT r{};
 
@@ -113,12 +136,6 @@ static VOID CALLBACK X360Notification(
     if (self) self->OnRumble(largeMotor, smallMotor);
 }
 
-static VOID CALLBACK Ds4Notification(
-    PVIGEM_CLIENT, PVIGEM_TARGET, UCHAR largeMotor, UCHAR smallMotor, DS4_LIGHTBAR_COLOR, LPVOID userData) {
-    auto* self = static_cast<VirtualController*>(userData);
-    if (self) self->OnRumble(largeMotor, smallMotor);
-}
-
 VirtualController::VirtualController(VirtualControllerMode mode, RumbleFn rumbleFn)
     : m_mode(mode), m_rumbleFn(std::move(rumbleFn)) {
     m_client = vigem_alloc();
@@ -154,18 +171,8 @@ VirtualController::VirtualController(VirtualControllerMode mode, RumbleFn rumble
     }
 
     if (m_mode == VirtualControllerMode::DualShock4) {
-#if defined(_MSC_VER)
-#pragma warning(push)
-#pragma warning(disable: 4996)
-#endif
-        err = vigem_target_ds4_register_notification(
-            static_cast<PVIGEM_CLIENT>(m_client),
-            static_cast<PVIGEM_TARGET>(m_target),
-            Ds4Notification,
-            this);
-#if defined(_MSC_VER)
-#pragma warning(pop)
-#endif
+        err = VIGEM_ERROR_NONE;
+        StartDs4OutputThread();
     } else {
         err = vigem_target_x360_register_notification(
             static_cast<PVIGEM_CLIENT>(m_client),
@@ -189,19 +196,10 @@ VirtualController::VirtualController(VirtualControllerMode mode, RumbleFn rumble
 }
 
 VirtualController::~VirtualController() {
-    if (m_target) {
-        if (m_mode == VirtualControllerMode::DualShock4) {
-#if defined(_MSC_VER)
-#pragma warning(push)
-#pragma warning(disable: 4996)
-#endif
-            vigem_target_ds4_unregister_notification(static_cast<PVIGEM_TARGET>(m_target));
-#if defined(_MSC_VER)
-#pragma warning(pop)
-#endif
-        } else {
-            vigem_target_x360_unregister_notification(static_cast<PVIGEM_TARGET>(m_target));
-        }
+    StopDs4OutputThread();
+
+    if (m_target && m_mode == VirtualControllerMode::Xbox360) {
+        vigem_target_x360_unregister_notification(static_cast<PVIGEM_TARGET>(m_target));
     }
 
     if (m_client && m_target) {
@@ -218,6 +216,45 @@ VirtualController::~VirtualController() {
 void VirtualController::OnRumble(uint8_t largeMotor, uint8_t smallMotor) {
     if (m_rumbleFn)
         m_rumbleFn(largeMotor, smallMotor);
+}
+
+void VirtualController::StartDs4OutputThread() {
+    if (m_ds4OutputRunning.exchange(true))
+        return;
+    m_ds4OutputThread = std::thread(&VirtualController::Ds4OutputLoop, this);
+}
+
+void VirtualController::StopDs4OutputThread() {
+    m_ds4OutputRunning = false;
+    if (m_ds4OutputThread.joinable())
+        m_ds4OutputThread.join();
+}
+
+void VirtualController::Ds4OutputLoop() {
+    while (m_ds4OutputRunning && m_client && m_target) {
+        DS4_OUTPUT_BUFFER output{};
+        VIGEM_ERROR err = vigem_target_ds4_await_output_report_timeout(
+            static_cast<PVIGEM_CLIENT>(m_client),
+            static_cast<PVIGEM_TARGET>(m_target),
+            100,
+            &output);
+
+        if (!m_ds4OutputRunning)
+            break;
+
+        if (err == VIGEM_ERROR_TIMED_OUT)
+            continue;
+
+        if (!VIGEM_SUCCESS(err)) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            continue;
+        }
+
+        uint8_t largeMotor = 0;
+        uint8_t smallMotor = 0;
+        if (ParseDs4OutputRumble(output, largeMotor, smallMotor))
+            OnRumble(largeMotor, smallMotor);
+    }
 }
 
 void VirtualController::SetBatteryState(uint8_t levelPercent, uint8_t chargeState) {

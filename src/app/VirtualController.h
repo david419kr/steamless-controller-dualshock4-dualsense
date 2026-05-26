@@ -1,7 +1,9 @@
 #pragma once
 #include <cstdint>
 #include <cstddef>
+#include <atomic>
 #include <functional>
+#include <thread>
 
 struct SteamControllerState;
 
@@ -30,6 +32,10 @@ public:
     void OnRumble(uint8_t largeMotor, uint8_t smallMotor);
 
 private:
+    void StartDs4OutputThread();
+    void StopDs4OutputThread();
+    void Ds4OutputLoop();
+
     void* m_client       = nullptr;
     void* m_target       = nullptr;
     VirtualControllerMode m_mode = VirtualControllerMode::Xbox360;
@@ -46,4 +52,6 @@ private:
     bool m_wasLeftTouching = false;
     uint8_t m_ds4BatteryLevel = 0x0B;
     uint8_t m_ds4BatterySpecial = 0x1B;
+    std::atomic<bool> m_ds4OutputRunning{false};
+    std::thread m_ds4OutputThread;
 };
