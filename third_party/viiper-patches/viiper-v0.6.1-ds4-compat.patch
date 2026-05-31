@@ -469,3 +469,68 @@ index 6e041d7..502cf56 100644
  		2: "Wireless Controller",
  	},
  }
+diff --git a/device/dualshock4/dualshock4_test.go b/device/dualshock4/dualshock4_test.go
+index 366c022..0554f1f 100644
+--- a/device/dualshock4/dualshock4_test.go
++++ b/device/dualshock4/dualshock4_test.go
+@@ -20,0 +21,42 @@
++func normalizeDynamicInputReport(report []byte) {
++	if len(report) < dualshock4.InputReportSize {
++		return
++	}
++	report[7] &= 0x03
++	report[10], report[11] = 0, 0
++	report[33], report[34] = 0, 0
++	report[35] &= 0x80
++	report[39] &= 0x80
++}
++
++func TestDescriptorCompatibility(t *testing.T) {
++	dev, err := dualshock4.New(nil)
++	if !assert.NoError(t, err) {
++		return
++	}
++
++	desc := dev.GetDescriptor()
++	assert.Equal(t, "Sony Computer Entertainment", desc.Strings[1])
++	assert.Equal(t, "Wireless Controller", desc.Strings[2])
++
++	report, err := desc.Interfaces[0].HID.ReportBytes()
++	if !assert.NoError(t, err) {
++		return
++	}
++	assert.Len(t, report, 467)
++
++	resp, handled := dev.HandleControl(0xA1, 0x01, 0x0302, 0, 37, nil)
++	assert.True(t, handled)
++	assert.Len(t, resp, 37)
++	assert.Equal(t, byte(0x02), resp[0])
++
++	resp, handled = dev.HandleControl(0xA1, 0x01, 0x0312, 0, 16, nil)
++	assert.True(t, handled)
++	assert.Equal(t, []byte{0x12, 0xC0, 0x13, 0x37, 0x01, 0x02, 0x03}, resp[:7])
++
++	resp, handled = dev.HandleControl(0xA1, 0x01, 0x03A3, 0, 49, nil)
++	assert.True(t, handled)
++	assert.Len(t, resp, 49)
++	assert.Equal(t, byte(0xA3), resp[0])
++}
++
+@@ -329,4 +371,2 @@
+-				gg[7] &= 0x03
+-				ww[7] &= 0x03
+-				gg[10], gg[11] = 0, 0
+-				ww[10], ww[11] = 0, 0
++				normalizeDynamicInputReport(gg)
++				normalizeDynamicInputReport(ww)
+@@ -354,4 +394,2 @@
+-			bb[7] &= 0x03
+-			exp[7] &= 0x03
+-			bb[10], bb[11] = 0, 0
+-			exp[10], exp[11] = 0, 0
++			normalizeDynamicInputReport(bb)
++			normalizeDynamicInputReport(exp)
+@@ -371,2 +409,1 @@
+-			gg[7] &= 0x03
+-			gg[10], gg[11] = 0, 0
++			normalizeDynamicInputReport(gg)

@@ -62,6 +62,7 @@ Source: "{#MyBuildDir}\viiper.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#MyBuildDir}\VIIPER-LICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "{#MyBuildDir}\VIIPER-SOURCE.txt"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "{#MyBuildDir}\viiper-v0.6.1-ds4-compat.patch"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#MyBuildDir}\viiper-v0.6.1-dualsense.patch"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 ; NOTE: Don't use "Flags: ignoreversion" on any shared system files
 
 [Icons]

@@ -1,5 +1,6 @@
 #pragma once
 #include "hid/HidDevice.h"
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -39,6 +40,16 @@ struct SteamControllerBatteryState {
     bool     valid = false;
     uint8_t  levelPercent = 100;
     uint8_t  chargeState = 0;
+};
+
+struct SteamControllerDualSenseHaptics {
+    uint8_t enableBits1 = 0;
+    uint8_t enableBits2 = 0;
+    uint8_t rumbleRight = 0;
+    uint8_t rumbleLeft = 0;
+    uint8_t enableBits3 = 0;
+    std::array<uint8_t, 11> rightTriggerEffect{};
+    std::array<uint8_t, 11> leftTriggerEffect{};
 };
 
 class SteamController {
@@ -188,6 +199,9 @@ public:
     bool SetImuEnabled(bool enabled);
     void SetRumble(uint8_t largeMotor, uint8_t smallMotor);
     void SetDs4EnhancedRumble(uint8_t largeMotor, uint8_t smallMotor);
+    void SetDualSenseHaptics(const SteamControllerDualSenseHaptics& haptics,
+                             uint8_t leftTriggerPosition,
+                             uint8_t rightTriggerPosition);
     void PulseTrackpadHaptic(bool left, bool strongClick);
     void ClearTrackpadHaptics();
     void MaintainRumble();
@@ -206,6 +220,17 @@ private:
     bool SendTrackpadPulseOutput(uint8_t side, uint16_t onUs, uint16_t offUs, uint16_t repeatCount, int16_t gainDb);
     bool SendTrackpadCommandOutput(uint8_t side, uint8_t command, int8_t gainDb);
 
+    struct DualSenseTriggerRuntime {
+        uint8_t mode = 0;
+        uint8_t region = 0;
+        bool active = false;
+    };
+
+    static uint16_t DualSenseTriggerPulseSpeed(const std::array<uint8_t, 11>& effect,
+                                               uint8_t triggerPosition,
+                                               DualSenseTriggerRuntime& runtime,
+                                               bool& clickPulse);
+
     HidDevice       m_device;
     std::thread     m_heartbeat;
     std::atomic<bool> m_running{false};
@@ -221,4 +246,9 @@ private:
     uint8_t         m_lastDs4LargeMotor = 0;
     uint8_t         m_lastDs4SmallMotor = 0;
     bool            m_hasDs4RumbleState = false;
+    uint8_t         m_lastDualSenseLeftRumble = 0;
+    uint8_t         m_lastDualSenseRightRumble = 0;
+    bool            m_hasDualSenseRumbleState = false;
+    DualSenseTriggerRuntime m_dualSenseLeftTrigger;
+    DualSenseTriggerRuntime m_dualSenseRightTrigger;
 };

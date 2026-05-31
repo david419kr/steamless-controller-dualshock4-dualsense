@@ -396,7 +396,28 @@ bool IsViiperDualShock4CompatibleVersion(const std::string& version) {
     std::string lower = version;
     std::transform(lower.begin(), lower.end(), lower.begin(),
                    [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    return lower.find("steamless3") != std::string::npos;
+    return lower.find("steamless3") != std::string::npos ||
+           lower.find("steamless4") != std::string::npos;
+}
+
+bool IsViiperDualSenseCompatibleVersion(const std::string& version) {
+    int major = 0;
+    int minor = 0;
+    int patch = 0;
+    if (!ParseVersionParts(version, major, minor, patch))
+        return false;
+
+    if (major != 0)
+        return major > 0;
+    if (minor != 6)
+        return minor > 6;
+    if (patch != 1)
+        return patch > 1;
+
+    std::string lower = version;
+    std::transform(lower.begin(), lower.end(), lower.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return lower.find("steamless4") != std::string::npos;
 }
 
 ViiperClient::~ViiperClient() {
@@ -515,6 +536,11 @@ bool ViiperClient::PingServer(VirtualControllerMode mode, std::string* version) 
         SetError(VirtualControllerError::ViiperUnsupported, nullptr);
         return false;
     }
+    if (mode == VirtualControllerMode::DualSense &&
+        !IsViiperDualSenseCompatibleVersion(ver)) {
+        SetError(VirtualControllerError::ViiperUnsupported, nullptr);
+        return false;
+    }
     if (version)
         *version = ver;
     m_error = VirtualControllerError::None;
@@ -600,7 +626,11 @@ bool ViiperClient::CreateBus() {
 }
 
 bool ViiperClient::AddDevice(VirtualControllerMode mode) {
-    const char* type = mode == VirtualControllerMode::DualShock4 ? "dualshock4" : "xbox360";
+    const char* type = "xbox360";
+    if (mode == VirtualControllerMode::DualShock4)
+        type = "dualshock4";
+    else if (mode == VirtualControllerMode::DualSense)
+        type = "dualsense";
     const std::string payload = std::string("{\"type\":\"") + type + "\"}";
     std::ostringstream path;
     path << "bus/" << m_busId << "/add";
@@ -664,21 +694,37 @@ void ViiperClient::RemoveDeviceAndBus() {
 }
 
 void ViiperClient::FeedbackLoop(VirtualControllerMode mode, std::uintptr_t streamSocket) {
-    const size_t feedbackSize = mode == VirtualControllerMode::DualShock4 ? 7u : 2u;
-    std::array<uint8_t, 8> buffer{};
+    size_t feedbackSize = 2u;
+    if (mode == VirtualControllerMode::DualShock4)
+        feedbackSize = 7u;
+    else if (mode == VirtualControllerMode::DualSense)
+        feedbackSize = 27u;
+    std::array<uint8_t, 32> buffer{};
     const SOCKET socket = ToSocket(streamSocket);
 
     while (m_feedbackRunning.load(std::memory_order_relaxed)) {
         if (!ReceiveExact(socket, buffer.data(), feedbackSize))
             break;
 
-        uint8_t largeMotor = 0;
-        uint8_t smallMotor = 0;
-        const bool ok = mode == VirtualControllerMode::DualShock4
-            ? DecodeViiperDualShock4Feedback(buffer.data(), feedbackSize, largeMotor, smallMotor)
-            : DecodeViiperXbox360Feedback(buffer.data(), feedbackSize, largeMotor, smallMotor);
+        ViiperFeedbackState feedback{};
+        feedback.mode = mode;
+        bool ok = false;
+        if (mode == VirtualControllerMode::DualShock4) {
+            ok = DecodeViiperDualShock4Feedback(buffer.data(), feedbackSize,
+                                                feedback.largeMotor,
+                                                feedback.smallMotor);
+        } else if (mode == VirtualControllerMode::DualSense) {
+            ok = DecodeViiperDualSenseFeedback(buffer.data(), feedbackSize,
+                                               feedback.dualSense);
+            feedback.largeMotor = feedback.dualSense.LargeMotor();
+            feedback.smallMotor = feedback.dualSense.SmallMotor();
+        } else {
+            ok = DecodeViiperXbox360Feedback(buffer.data(), feedbackSize,
+                                             feedback.largeMotor,
+                                             feedback.smallMotor);
+        }
         if (ok && m_feedbackFn)
-            m_feedbackFn(largeMotor, smallMotor);
+            m_feedbackFn(feedback);
     }
 }
 

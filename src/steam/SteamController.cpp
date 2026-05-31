@@ -243,7 +243,7 @@ bool SteamController::ParseBatteryReport(const uint8_t* buffer, size_t size, Ste
     SteamControllerBatteryState s{};
     s.valid = true;
     s.chargeState = buffer[1];
-    s.levelPercent = static_cast<uint8_t>(std::min<uint8_t>(buffer[2], 100));
+    s.levelPercent = buffer[2] > 100 ? 100 : buffer[2];
     state = s;
     return true;
 }
@@ -341,6 +341,134 @@ void SteamController::SetDs4EnhancedRumble(uint8_t largeMotor, uint8_t smallMoto
         frame = CurrentRumbleFrameLocked(now);
     }
 
+    SendRumbleOutput(frame.left, frame.right);
+}
+
+uint16_t SteamController::DualSenseTriggerPulseSpeed(const std::array<uint8_t, 11>& effect,
+                                                     uint8_t triggerPosition,
+                                                     DualSenseTriggerRuntime& runtime,
+                                                     bool& clickPulse) {
+    clickPulse = false;
+
+    const uint8_t mode = effect[0];
+    if (mode == 0) {
+        if (runtime.active)
+            clickPulse = true;
+        runtime = {};
+        return 0;
+    }
+
+    uint8_t maxParam = 0;
+    for (size_t i = 1; i < effect.size(); ++i)
+        if (effect[i] > maxParam)
+            maxParam = effect[i];
+
+    uint8_t region = static_cast<uint8_t>(triggerPosition / 26);
+    if (region > 9)
+        region = 9;
+    const uint8_t startParam = effect[1];
+    const uint8_t endParam = effect[2];
+    const uint8_t start = startParam <= 9
+        ? static_cast<uint8_t>(startParam * 26 > 255 ? 255 : startParam * 26)
+        : startParam;
+    const uint8_t end = endParam <= 9
+        ? static_cast<uint8_t>((endParam + 1) * 26 > 255 ? 255 : (endParam + 1) * 26)
+        : endParam;
+
+    bool active = triggerPosition >= start;
+    uint8_t strength = 0;
+    if (mode == 2 || mode == 0x02) {
+        active = triggerPosition >= start && (end <= start || triggerPosition <= end);
+        strength = effect[3] > maxParam ? effect[3] : maxParam;
+    } else {
+        strength = effect[1 + region];
+        if (strength == 0)
+            strength = effect[2] > maxParam ? effect[2] : maxParam;
+    }
+    if (strength == 0)
+        strength = 96;
+
+    if (mode != runtime.mode || active != runtime.active ||
+        (active && region != runtime.region && (mode >= 3 || mode >= 0x20))) {
+        clickPulse = active || runtime.active;
+    }
+
+    runtime.mode = mode;
+    runtime.region = region;
+    runtime.active = active;
+
+    if (!active)
+        return 0;
+
+    const double unit = std::clamp(static_cast<double>(strength) / 255.0, 0.0, 1.0);
+    return UnitToHapticSpeed(unit, 0x1400);
+}
+
+void SteamController::SetDualSenseHaptics(const SteamControllerDualSenseHaptics& haptics,
+                                          uint8_t leftTriggerPosition,
+                                          uint8_t rightTriggerPosition) {
+    const double low = MotorByteToUnit(haptics.rumbleLeft);
+    const double high = MotorByteToUnit(haptics.rumbleRight);
+
+    bool leftTriggerClick = false;
+    bool rightTriggerClick = false;
+    RumbleFrame frame{};
+    {
+        std::lock_guard<std::mutex> lock(m_rumbleMutex);
+
+        const uint16_t leftTriggerSpeed = DualSenseTriggerPulseSpeed(
+            haptics.leftTriggerEffect,
+            leftTriggerPosition,
+            m_dualSenseLeftTrigger,
+            leftTriggerClick);
+        const uint16_t rightTriggerSpeed = DualSenseTriggerPulseSpeed(
+            haptics.rightTriggerEffect,
+            rightTriggerPosition,
+            m_dualSenseRightTrigger,
+            rightTriggerClick);
+
+        const double leftTriggerDemand = static_cast<double>(leftTriggerSpeed) / 65535.0;
+        const double rightTriggerDemand = static_cast<double>(rightTriggerSpeed) / 65535.0;
+        const double leftDemand = ClampUnit(low * 1.00 + high * 0.28 + leftTriggerDemand * 0.45);
+        const double rightDemand = ClampUnit(low * 0.72 + high * 0.95 + rightTriggerDemand * 0.45);
+
+        m_rumbleBaseLeft = UnitToHapticSpeed(leftDemand, 0x1000);
+        m_rumbleBaseRight = UnitToHapticSpeed(rightDemand, 0x1000);
+
+        const int leftRise = m_hasDualSenseRumbleState
+            ? static_cast<int>(haptics.rumbleLeft) - static_cast<int>(m_lastDualSenseLeftRumble)
+            : static_cast<int>(haptics.rumbleLeft);
+        const int rightRise = m_hasDualSenseRumbleState
+            ? static_cast<int>(haptics.rumbleRight) - static_cast<int>(m_lastDualSenseRightRumble)
+            : static_cast<int>(haptics.rumbleRight);
+        m_lastDualSenseLeftRumble = haptics.rumbleLeft;
+        m_lastDualSenseRightRumble = haptics.rumbleRight;
+        m_hasDualSenseRumbleState = true;
+
+        int strongestRise = leftRise > rightRise ? leftRise : rightRise;
+        if (strongestRise < 0)
+            strongestRise = 0;
+        if (strongestRise > 16 || leftTriggerClick || rightTriggerClick) {
+            const double punch = ClampUnit(static_cast<double>(strongestRise) / 255.0 + 0.18);
+            const uint16_t boostedLeft = UnitToHapticSpeed(leftDemand + punch * 0.45, 0x2200);
+            const uint16_t boostedRight = UnitToHapticSpeed(rightDemand + punch * 0.45, 0x2200);
+            m_rumbleBoostLeft = m_rumbleBaseLeft > boostedLeft ? m_rumbleBaseLeft : boostedLeft;
+            m_rumbleBoostRight = m_rumbleBaseRight > boostedRight ? m_rumbleBaseRight : boostedRight;
+            m_rumbleBoostUntil = std::chrono::steady_clock::now() + std::chrono::milliseconds(45);
+        } else if (m_rumbleBaseLeft == 0 && m_rumbleBaseRight == 0) {
+            m_rumbleBoostLeft = 0;
+            m_rumbleBoostRight = 0;
+            m_rumbleBoostUntil = {};
+        }
+
+        m_lastRumbleSent = std::chrono::steady_clock::now();
+        frame = CurrentRumbleFrameLocked(m_lastRumbleSent);
+    }
+
+    if (leftTriggerClick)
+        PulseTrackpadHaptic(true, true);
+    if (rightTriggerClick)
+        PulseTrackpadHaptic(false, true);
     SendRumbleOutput(frame.left, frame.right);
 }
 

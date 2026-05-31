@@ -1,6 +1,6 @@
 # SteamlessController VIIPER Backend 포크
 
-이 브랜치는 Steam Controller를 VIIPER 기반 가상 Xbox 360 또는 DualShock 4 컨트롤러로 노출하는 SteamlessController 포크입니다. 목표는 기존 Xbox 360 동작을 유지하면서, DualShock 4 네이티브 입력 경로가 필요한 게임에서 자이로, 터치패드, 진동, 트랙패드 햅틱을 사용할 수 있게 하는 것입니다.
+이 브랜치는 Steam Controller를 VIIPER 기반 가상 Xbox 360, DualShock 4, 또는 실험적 DualSense 컨트롤러로 노출하는 SteamlessController 포크입니다. 목표는 기존 Xbox 360 동작을 유지하면서, PlayStation 네이티브 입력 경로가 필요한 게임에서 자이로, 터치패드, 진동, 트랙패드 햅틱, DualSense 트리거 햅틱 근사를 사용할 수 있게 하는 것입니다.
 
 ## 포크 변경점
 
@@ -8,11 +8,12 @@
 - 릴리즈 빌드는 `SteamlessController.exe`와 패치된 `viiper.exe`를 같은 폴더에 함께 배치해야 합니다.
 - Windows에서 VIIPER virtual USB 장치를 OS에 붙이려면 범용 [usbip-win2](https://github.com/vadimgrn/usbip-win2) 드라이버가 필요합니다.
 - Steam에서 사용하려면 [HidHide](https://github.com/nefarius/HidHide/releases/latest)를 설치하세요. Steamless Mode가 켜져 있을 때 실제 Steam Controller/Puck을 숨기고, Steam에는 가상 컨트롤러만 보이도록 하기 위한 용도입니다.
-- HidHide로 Steam에서 사용하려면 Steamless Mode를 먼저 켠 다음 Steam을 재시작하세요. Steam이 이미 켜져 있는 상태에서는 실제 컨트롤러와 가상 DualShock 4가 동시에 인식되어 중복 입력이 발생할 수 있습니다.
+- HidHide로 Steam에서 사용하려면 Steamless Mode를 먼저 켠 다음 Steam을 재시작하세요. Steam이 이미 켜져 있는 상태에서는 실제 컨트롤러와 가상 PlayStation 컨트롤러가 동시에 인식되어 중복 입력이 발생할 수 있습니다.
 - 앱이 실행되지 않으면 [Microsoft Visual C++ Redistributable 2015-2022 x64](https://aka.ms/vc14/vc_redist.x64.exe)가 필요할 수 있습니다.
 - [최신 릴리즈](https://github.com/david419kr/steamless-controller-dualshock4/releases/latest)에서 앱을 내려받고, `viiper.exe`가 같은 폴더에 있는 상태로 실행하면 됩니다.
-- DualShock 4를 지원하는 Steam 게임에서 네이티브 자이로를 사용하려면, Steam 라이브러리에서 해당 게임을 우클릭한 뒤 속성에서 Steam Input을 비활성화해야 할 수 있습니다.
+- DualShock 4 또는 DualSense를 지원하는 Steam 게임에서 네이티브 자이로를 사용하려면, Steam 라이브러리에서 해당 게임을 우클릭한 뒤 속성에서 Steam Input을 비활성화해야 할 수 있습니다.
 - DualShock 4 모드는 버튼, 스틱, 트리거, 네이티브 자이로/가속도, 터치패드 출력, 진동, Steam Controller 트랙패드 햅틱, 트랙패드 D-pad, L4/L5/R4/R5 백버튼 매핑을 지원합니다.
+- DualSense 모드는 실험적 기능입니다. DualSense USB HID identity, 네이티브 자이로/가속도, 터치패드 출력, compatible rumble, adaptive-trigger output 파싱, Steam Controller 햅틱 기반 트리거 효과 합성을 지원합니다.
 - HidHide와 DualShock 4 모드를 함께 사용하여 Steam에서 **Pragmata**의 네이티브 자이로 조작이 동작하는 것을 확인했습니다.
 - Steam 외 사용처로 **Cemu**에서도 네이티브 자이로 입력이 동작하는 것을 확인했습니다.
 
@@ -20,8 +21,8 @@
 
 1. `SteamlessController.exe`와 패치된 `viiper.exe`를 같은 폴더에 둡니다.
 2. [usbip-win2](https://github.com/vadimgrn/usbip-win2)를 설치합니다.
-3. Steam에서 네이티브 DualShock 4 입력으로 사용하려면 HidHide를 설치합니다.
-4. 앱을 실행하고 트레이 메뉴에서 `Output Mode -> DualShock 4`를 선택합니다.
+3. Steam에서 네이티브 PlayStation 컨트롤러 입력으로 사용하려면 HidHide를 설치합니다.
+4. 앱을 실행하고 트레이 메뉴에서 `Output Mode -> DualShock 4` 또는 `Output Mode -> DualSense`를 선택합니다.
 5. Steamless Mode를 켠 다음 Steam을 재시작합니다.
 6. 게임별로 필요하면 Steam 라이브러리의 해당 게임 속성에서 Steam Input을 비활성화합니다.
 
@@ -40,7 +41,7 @@ cmake --build --preset release
 powershell -ExecutionPolicy Bypass -File tools\build-viiper.ps1 -OutputDir build\release\Release
 ```
 
-이 스크립트는 upstream VIIPER `v0.6.1`을 받아 `third_party\viiper-patches\viiper-v0.6.1-ds4-compat.patch`를 적용하고, 서버 버전을 `v0.6.1-steamless3`로 표시한 `viiper.exe`를 빌드합니다. stock `v0.6.1`은 DualShock 4 모드에서 의도적으로 거부합니다. 네이티브 DS4 자이로/터치패드 클라이언트가 요구하는 feature report와 descriptor 보강이 없기 때문입니다.
+이 스크립트는 upstream VIIPER `v0.6.1`을 받아 `third_party\viiper-patches\viiper-v0.6.1-ds4-compat.patch`와 `third_party\viiper-patches\viiper-v0.6.1-dualsense.patch`를 적용하고, 서버 버전을 `v0.6.1-steamless4`로 표시한 `viiper.exe`를 빌드합니다. stock `v0.6.1`은 PlayStation 모드에서 의도적으로 거부합니다. 네이티브 자이로/터치패드/트리거 클라이언트가 요구하는 feature report와 descriptor 보강이 없기 때문입니다.
 
 ## 단일 installer 패키징
 
@@ -74,6 +75,6 @@ SteamlessController가 bundled VIIPER sidecar를 자동 실행할 때 VIIPER 로
 
 ## 라이선스 메모
 
-패치된 `viiper.exe`를 배포 artifact에 포함하는 경우 VIIPER의 GPLv3 라이선스 고지와 대응 소스/패치 위치를 함께 제공해야 합니다. `tools\build-viiper.ps1`은 출력 폴더에 `VIIPER-LICENSE.txt`, `VIIPER-SOURCE.txt`, `viiper-v0.6.1-ds4-compat.patch`를 같이 복사합니다.
+패치된 `viiper.exe`를 배포 artifact에 포함하는 경우 VIIPER의 GPLv3 라이선스 고지와 대응 소스/패치 위치를 함께 제공해야 합니다. `tools\build-viiper.ps1`은 출력 폴더에 `VIIPER-LICENSE.txt`, `VIIPER-SOURCE.txt`, `viiper-v0.6.1-ds4-compat.patch`, `viiper-v0.6.1-dualsense.patch`를 같이 복사합니다.
 
 원본 SteamlessController 설명과 상세 빌드 타깃은 [README.md](README.md)를 참고하세요.

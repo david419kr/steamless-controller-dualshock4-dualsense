@@ -43,6 +43,27 @@ constexpr uint8_t DS4_DPAD_DOWN = 0x02;
 constexpr uint8_t DS4_DPAD_LEFT = 0x04;
 constexpr uint8_t DS4_DPAD_RIGHT = 0x08;
 
+constexpr uint16_t DS5_BUTTON_PS = 0x0001;
+constexpr uint16_t DS5_BUTTON_TOUCHPAD_CLICK = 0x0002;
+constexpr uint16_t DS5_BUTTON_MUTE = 0x0004;
+constexpr uint16_t DS5_BUTTON_SQUARE = 0x0010;
+constexpr uint16_t DS5_BUTTON_CROSS = 0x0020;
+constexpr uint16_t DS5_BUTTON_CIRCLE = 0x0040;
+constexpr uint16_t DS5_BUTTON_TRIANGLE = 0x0080;
+constexpr uint16_t DS5_BUTTON_L1 = 0x0100;
+constexpr uint16_t DS5_BUTTON_R1 = 0x0200;
+constexpr uint16_t DS5_BUTTON_L2 = 0x0400;
+constexpr uint16_t DS5_BUTTON_R2 = 0x0800;
+constexpr uint16_t DS5_BUTTON_CREATE = 0x1000;
+constexpr uint16_t DS5_BUTTON_OPTIONS = 0x2000;
+constexpr uint16_t DS5_BUTTON_L3 = 0x4000;
+constexpr uint16_t DS5_BUTTON_R3 = 0x8000;
+
+constexpr uint8_t DS5_DPAD_UP = DS4_DPAD_UP;
+constexpr uint8_t DS5_DPAD_DOWN = DS4_DPAD_DOWN;
+constexpr uint8_t DS5_DPAD_LEFT = DS4_DPAD_LEFT;
+constexpr uint8_t DS5_DPAD_RIGHT = DS4_DPAD_RIGHT;
+
 enum class DpadDirection : uint8_t {
     None,
     North,
@@ -178,6 +199,10 @@ uint8_t Ds4DpadMask(DpadDirection direction) {
     default:
         return 0;
     }
+}
+
+uint8_t Ds5DpadMask(DpadDirection direction) {
+    return Ds4DpadMask(direction);
 }
 
 bool BackButtonPressed(const SteamControllerState& state, BackButtonId id) {
@@ -319,6 +344,68 @@ void ApplyBackButtonActionDs4(BackButtonAction action,
     }
 }
 
+void ApplyBackButtonActionDs5(BackButtonAction action,
+                              ViiperDualSenseInputState& state,
+                              uint8_t& dpadMask) {
+    switch (action) {
+    case BackButtonAction::DpadUp:
+        dpadMask |= DS5_DPAD_UP;
+        break;
+    case BackButtonAction::DpadDown:
+        dpadMask |= DS5_DPAD_DOWN;
+        break;
+    case BackButtonAction::DpadLeft:
+        dpadMask |= DS5_DPAD_LEFT;
+        break;
+    case BackButtonAction::DpadRight:
+        dpadMask |= DS5_DPAD_RIGHT;
+        break;
+    case BackButtonAction::South:
+        state.buttons |= DS5_BUTTON_CROSS;
+        break;
+    case BackButtonAction::East:
+        state.buttons |= DS5_BUTTON_CIRCLE;
+        break;
+    case BackButtonAction::West:
+        state.buttons |= DS5_BUTTON_SQUARE;
+        break;
+    case BackButtonAction::North:
+        state.buttons |= DS5_BUTTON_TRIANGLE;
+        break;
+    case BackButtonAction::LeftBumper:
+        state.buttons |= DS5_BUTTON_L1;
+        break;
+    case BackButtonAction::RightBumper:
+        state.buttons |= DS5_BUTTON_R1;
+        break;
+    case BackButtonAction::LeftTrigger:
+        state.leftTrigger = 255;
+        state.buttons |= DS5_BUTTON_L2;
+        break;
+    case BackButtonAction::RightTrigger:
+        state.rightTrigger = 255;
+        state.buttons |= DS5_BUTTON_R2;
+        break;
+    case BackButtonAction::LeftStick:
+        state.buttons |= DS5_BUTTON_L3;
+        break;
+    case BackButtonAction::RightStick:
+        state.buttons |= DS5_BUTTON_R3;
+        break;
+    case BackButtonAction::Back:
+        state.buttons |= DS5_BUTTON_CREATE;
+        break;
+    case BackButtonAction::Start:
+        state.buttons |= DS5_BUTTON_OPTIONS;
+        break;
+    case BackButtonAction::Guide:
+        state.buttons |= DS5_BUTTON_PS;
+        break;
+    default:
+        break;
+    }
+}
+
 void ApplyBackButtonMappingsX360(const SteamControllerState& rawState,
                                  const BackButtonMappings& mappings,
                                  ViiperXbox360InputState& state) {
@@ -339,6 +426,18 @@ void ApplyBackButtonMappingsDs4(const SteamControllerState& rawState,
         const BackButtonAction action = mappings.Get(id);
         if (action != BackButtonAction::None && BackButtonPressed(rawState, id))
             ApplyBackButtonActionDs4(action, state, dpadMask);
+    }
+}
+
+void ApplyBackButtonMappingsDs5(const SteamControllerState& rawState,
+                                const BackButtonMappings& mappings,
+                                ViiperDualSenseInputState& state,
+                                uint8_t& dpadMask) {
+    for (uint8_t i = 0; i < static_cast<uint8_t>(BackButtonId::Count); ++i) {
+        const auto id = static_cast<BackButtonId>(i);
+        const BackButtonAction action = mappings.Get(id);
+        if (action != BackButtonAction::None && BackButtonPressed(rawState, id))
+            ApplyBackButtonActionDs5(action, state, dpadMask);
     }
 }
 
@@ -395,6 +494,33 @@ std::array<uint8_t, 31> ViiperDualShock4InputState::Serialize() const {
     PutI16(data.data() + 25, accelX);
     PutI16(data.data() + 27, accelY);
     PutI16(data.data() + 29, accelZ);
+    return data;
+}
+
+std::array<uint8_t, 33> ViiperDualSenseInputState::Serialize() const {
+    std::array<uint8_t, 33> data{};
+    data[0] = leftStickX;
+    data[1] = leftStickY;
+    data[2] = rightStickX;
+    data[3] = rightStickY;
+    data[4] = leftTrigger;
+    data[5] = rightTrigger;
+    data[6] = dpad;
+    PutU16(data.data() + 7, buttons);
+    PutU16(data.data() + 9, touch1X);
+    PutU16(data.data() + 11, touch1Y);
+    data[13] = touch1Active ? 1 : 0;
+    PutU16(data.data() + 14, touch2X);
+    PutU16(data.data() + 16, touch2Y);
+    data[18] = touch2Active ? 1 : 0;
+    PutI16(data.data() + 19, gyroX);
+    PutI16(data.data() + 21, gyroY);
+    PutI16(data.data() + 23, gyroZ);
+    PutI16(data.data() + 25, accelX);
+    PutI16(data.data() + 27, accelY);
+    PutI16(data.data() + 29, accelZ);
+    data[31] = batteryLevelPercent;
+    data[32] = chargeState;
     return data;
 }
 
@@ -540,6 +666,96 @@ ViiperDualShock4InputState BuildViiperDualShock4Input(
     return out;
 }
 
+ViiperDualSenseInputState BuildViiperDualSenseInput(
+    const SteamControllerState& state,
+    const VirtualControllerRuntimeSettings& settings) {
+    ViiperDualSenseInputState out{};
+    out.leftStickX = AxisToDs4Byte(state.leftStickX, false);
+    out.leftStickY = AxisToDs4Byte(state.leftStickY, true);
+    out.rightStickX = AxisToDs4Byte(state.rightStickX, false);
+    out.rightStickY = AxisToDs4Byte(state.rightStickY, true);
+    out.leftTrigger = TriggerToByte(state.leftTrigger);
+    out.rightTrigger = TriggerToByte(state.rightTrigger);
+
+    const uint8_t b0 = ButtonByte(state, 0);
+    const uint8_t b1 = ButtonByte(state, 1);
+    const uint8_t b2 = ButtonByte(state, 2);
+    const uint8_t b3 = ButtonByte(state, 3);
+
+    const bool rawRightClick = (b2 & SteamController::BTN_TP_RT_CLICK) != 0;
+    const bool rawLeftClick = (b3 & SteamController::BTN_TP_LT_CLICK) != 0;
+    const bool rawRightTouching = ((b2 & SteamController::BTN_TP_RT) != 0) || rawRightClick;
+    const bool rawLeftTouching = ((b3 & SteamController::BTN_TP_LT) != 0) || rawLeftClick;
+
+    DpadDirection dpad = PhysicalDpadDirection(state);
+    if (settings.trackpadDpadEnabled) {
+        const DpadDirection trackpadDpad = settings.useRightTrackpadForDpad
+            ? TrackpadDpadDirection(state.rightPadX, state.rightPadY, rawRightClick)
+            : TrackpadDpadDirection(state.leftPadX, state.leftPadY, rawLeftClick);
+        if (trackpadDpad != DpadDirection::None)
+            dpad = trackpadDpad;
+    }
+    uint8_t dpadMask = Ds5DpadMask(dpad);
+
+    if (b0 & SteamController::BTN_A) out.buttons |= DS5_BUTTON_CROSS;
+    if (b0 & SteamController::BTN_B) out.buttons |= DS5_BUTTON_CIRCLE;
+    if (b0 & SteamController::BTN_X) out.buttons |= DS5_BUTTON_SQUARE;
+    if (b0 & SteamController::BTN_Y) out.buttons |= DS5_BUTTON_TRIANGLE;
+    if (b2 & SteamController::BTN_LB) out.buttons |= DS5_BUTTON_L1;
+    if (b1 & SteamController::BTN_RB) out.buttons |= DS5_BUTTON_R1;
+    if (b1 & SteamController::BTN_VIEW) out.buttons |= DS5_BUTTON_CREATE;
+    if ((b0 & SteamController::BTN_MENU) && !rawRightClick && !rawLeftClick)
+        out.buttons |= DS5_BUTTON_OPTIONS;
+    if (b1 & SteamController::BTN_LS) out.buttons |= DS5_BUTTON_L3;
+    if (b0 & SteamController::BTN_RS) out.buttons |= DS5_BUTTON_R3;
+    if (out.leftTrigger > 0) out.buttons |= DS5_BUTTON_L2;
+    if (out.rightTrigger > 0) out.buttons |= DS5_BUTTON_R2;
+    if (b2 & SteamController::BTN_STEAM) out.buttons |= DS5_BUTTON_PS;
+
+    ApplyBackButtonMappingsDs5(state, settings.backButtonMappings, out, dpadMask);
+    out.dpad = dpadMask;
+
+    if (state.hasImu) {
+        out.gyroX = state.gyroX;
+        out.gyroY = state.gyroZ;
+        out.gyroZ = NegI16(state.gyroY);
+        out.accelX = state.accelX;
+        out.accelY = state.accelZ;
+        out.accelZ = NegI16(state.accelY);
+    }
+
+    const bool suppressRightTouch =
+        (settings.trackpadMouseEnabled && !settings.useLeftTrackpadForMouse) ||
+        (settings.trackpadDpadEnabled && settings.useRightTrackpadForDpad);
+    const bool suppressLeftTouch =
+        (settings.trackpadMouseEnabled && settings.useLeftTrackpadForMouse) ||
+        (settings.trackpadDpadEnabled && !settings.useRightTrackpadForDpad);
+    const bool rightTouching = rawRightTouching && !suppressRightTouch;
+    const bool leftTouching = rawLeftTouching && !suppressLeftTouch;
+    const bool rightClick = rawRightClick && !suppressRightTouch;
+    const bool leftClick = rawLeftClick && !suppressLeftTouch;
+
+    if (rightClick || leftClick)
+        out.buttons |= DS5_BUTTON_TOUCHPAD_CLICK;
+
+    out.touch1Active = rightTouching;
+    out.touch1X = rightTouching
+        ? static_cast<uint16_t>(NormalizePadAxis(state.rightPadX, 1919, false))
+        : 0;
+    out.touch1Y = rightTouching
+        ? static_cast<uint16_t>(NormalizePadAxis(state.rightPadY, 1069, true))
+        : 0;
+    out.touch2Active = leftTouching;
+    out.touch2X = leftTouching
+        ? static_cast<uint16_t>(NormalizePadAxis(state.leftPadX, 1919, false))
+        : 0;
+    out.touch2Y = leftTouching
+        ? static_cast<uint16_t>(NormalizePadAxis(state.leftPadY, 1069, true))
+        : 0;
+
+    return out;
+}
+
 bool DecodeViiperXbox360Feedback(const uint8_t* data,
                                  size_t size,
                                  uint8_t& largeMotor,
@@ -559,5 +775,21 @@ bool DecodeViiperDualShock4Feedback(const uint8_t* data,
         return false;
     smallMotor = data[0];
     largeMotor = data[1];
+    return true;
+}
+
+bool DecodeViiperDualSenseFeedback(const uint8_t* data,
+                                   size_t size,
+                                   ViiperDualSenseFeedbackState& feedback) {
+    if (!data || size < 27)
+        return false;
+
+    feedback.enableBits1 = data[0];
+    feedback.enableBits2 = data[1];
+    feedback.rumbleRight = data[2];
+    feedback.rumbleLeft = data[3];
+    feedback.enableBits3 = data[4];
+    std::copy(data + 5, data + 16, feedback.rightTriggerEffect.begin());
+    std::copy(data + 16, data + 27, feedback.leftTriggerEffect.begin());
     return true;
 }

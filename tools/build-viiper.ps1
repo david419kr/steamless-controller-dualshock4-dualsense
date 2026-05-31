@@ -3,7 +3,7 @@ param(
     [string]$SourceDir,
     [string]$RepoUrl = "https://github.com/Alia5/VIIPER.git",
     [string]$UpstreamTag = "v0.6.1",
-    [string]$SteamlessVersion = "v0.6.1-steamless3"
+    [string]$SteamlessVersion = "v0.6.1-steamless4"
 )
 
 Set-StrictMode -Version Latest
@@ -42,9 +42,14 @@ function Invoke-Checked {
 }
 
 $repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
-$patchPath = Join-Path $repoRoot "third_party\viiper-patches\viiper-v0.6.1-ds4-compat.patch"
-if (-not (Test-Path -LiteralPath $patchPath -PathType Leaf)) {
-    throw "Patch file not found: $patchPath"
+$patchPaths = @(
+    (Join-Path $repoRoot "third_party\viiper-patches\viiper-v0.6.1-ds4-compat.patch"),
+    (Join-Path $repoRoot "third_party\viiper-patches\viiper-v0.6.1-dualsense.patch")
+)
+foreach ($patchPath in $patchPaths) {
+    if (-not (Test-Path -LiteralPath $patchPath -PathType Leaf)) {
+        throw "Patch file not found: $patchPath"
+    }
 }
 
 if ([string]::IsNullOrWhiteSpace($SourceDir)) {
@@ -84,17 +89,20 @@ if (Test-Path -LiteralPath $sourceGitDir -PathType Container) {
     Invoke-Checked -FilePath $git -Arguments @("clone", "--branch", $UpstreamTag, "--depth", "1", $RepoUrl, $SourceDir)
 }
 
-$applyCheckOutput = & $git -C $SourceDir apply --check $patchPath 2>&1
-if ($LASTEXITCODE -eq 0) {
-    Invoke-Checked -FilePath $git -Arguments @("-C", $SourceDir, "apply", $patchPath)
-} else {
-    $reverseCheckOutput = & $git -C $SourceDir apply --reverse --check $patchPath 2>&1
+foreach ($patchPath in $patchPaths) {
+    $patchName = Split-Path -Leaf $patchPath
+    $applyCheckOutput = & $git -C $SourceDir apply --unidiff-zero --check $patchPath 2>&1
     if ($LASTEXITCODE -eq 0) {
-        Write-Host "VIIPER DS4 compatibility patch is already applied."
+        Invoke-Checked -FilePath $git -Arguments @("-C", $SourceDir, "apply", "--unidiff-zero", $patchPath)
     } else {
-        Write-Host $applyCheckOutput
-        Write-Host $reverseCheckOutput
-        throw "Could not apply or verify VIIPER DS4 compatibility patch."
+        $reverseCheckOutput = & $git -C $SourceDir apply --unidiff-zero --reverse --check $patchPath 2>&1
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "VIIPER patch is already applied: $patchName"
+        } else {
+            Write-Host $applyCheckOutput
+            Write-Host $reverseCheckOutput
+            throw "Could not apply or verify VIIPER patch: $patchName"
+        }
     }
 }
 
@@ -124,7 +132,9 @@ $licenseSource = Join-Path $SourceDir "LICENSE.txt"
 if (Test-Path -LiteralPath $licenseSource -PathType Leaf) {
     Copy-Item -LiteralPath $licenseSource -Destination (Join-Path $OutputDir "VIIPER-LICENSE.txt") -Force
 }
-Copy-Item -LiteralPath $patchPath -Destination (Join-Path $OutputDir "viiper-v0.6.1-ds4-compat.patch") -Force
+foreach ($patchPath in $patchPaths) {
+    Copy-Item -LiteralPath $patchPath -Destination (Join-Path $OutputDir (Split-Path -Leaf $patchPath)) -Force
+}
 
 $sourceNotice = @"
 This viiper.exe was built for SteamlessController.
@@ -132,7 +142,9 @@ This viiper.exe was built for SteamlessController.
 Upstream: $RepoUrl
 Base tag: $UpstreamTag
 Local version: $SteamlessVersion
-Patch: viiper-v0.6.1-ds4-compat.patch
+Patches:
+  viiper-v0.6.1-ds4-compat.patch
+  viiper-v0.6.1-dualsense.patch
 
 Rebuild:
   powershell -ExecutionPolicy Bypass -File tools\build-viiper.ps1 -OutputDir <release-dir>

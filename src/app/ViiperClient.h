@@ -18,10 +18,11 @@ bool ParseViiperDeviceResponse(const std::string& json, uint32_t& busId, std::st
 bool IsViiperUsbIpDriverMissingResponse(const std::string& json);
 bool IsViiperVersionSupported(const std::string& version);
 bool IsViiperDualShock4CompatibleVersion(const std::string& version);
+bool IsViiperDualSenseCompatibleVersion(const std::string& version);
 
 class ViiperClient {
 public:
-    using FeedbackFn = std::function<void(uint8_t largeMotor, uint8_t smallMotor)>;
+    using FeedbackFn = std::function<void(const ViiperFeedbackState& feedback)>;
 
     ViiperClient() = default;
     ~ViiperClient();

@@ -67,8 +67,18 @@ void TestViiperRequestHelpers() {
            "Old Steamless-patched VIIPER v0.6.1 steamless2 is not DS4-compatible");
     Expect(IsViiperDualShock4CompatibleVersion("0.6.1-steamless3"),
            "Steamless-patched VIIPER v0.6.1 steamless3 is DS4-compatible");
+    Expect(IsViiperDualShock4CompatibleVersion("0.6.1-steamless4"),
+           "Steamless-patched VIIPER v0.6.1 steamless4 remains DS4-compatible");
     Expect(IsViiperDualShock4CompatibleVersion("v0.6.2"),
            "Future VIIPER versions are treated as DS4-compatible");
+    Expect(!IsViiperDualSenseCompatibleVersion("v0.6.1"),
+           "Stock VIIPER v0.6.1 is not DualSense-compatible");
+    Expect(!IsViiperDualSenseCompatibleVersion("0.6.1-steamless3"),
+           "Steamless3 VIIPER v0.6.1 is not DualSense-compatible");
+    Expect(IsViiperDualSenseCompatibleVersion("0.6.1-steamless4"),
+           "Steamless4 VIIPER v0.6.1 is DualSense-compatible");
+    Expect(IsViiperDualSenseCompatibleVersion("v0.6.2"),
+           "Future VIIPER versions are treated as DualSense-compatible");
 
     uint32_t busId = 0;
     std::string devId;
@@ -228,6 +238,74 @@ void TestDualShock4TouchSuppressionAndBackButtons() {
     Expect((mapped.buttons & 0x0001) != 0, "DS4 back button can map to PS");
 }
 
+void TestDualSenseMapping() {
+    SteamControllerState state{};
+    SetButtons(state,
+               SteamController::BTN_A | SteamController::BTN_B |
+                   SteamController::BTN_X | SteamController::BTN_Y |
+                   SteamController::BTN_MENU,
+               SteamController::BTN_VIEW | SteamController::BTN_LS |
+                   SteamController::BTN_RB,
+               SteamController::BTN_LB | SteamController::BTN_STEAM,
+               0);
+    state.leftTrigger = 32767;
+    state.rightTrigger = 16384;
+    state.hasImu = true;
+    state.gyroX = 11;
+    state.gyroY = 22;
+    state.gyroZ = 33;
+    state.accelX = 44;
+    state.accelY = 55;
+    state.accelZ = 66;
+
+    VirtualControllerRuntimeSettings settings{};
+    const ViiperDualSenseInputState input = BuildViiperDualSenseInput(state, settings);
+    ExpectEq(input.buttons,
+             0x0001 | 0x0010 | 0x0020 | 0x0040 | 0x0080 |
+                 0x0100 | 0x0200 | 0x0400 | 0x0800 | 0x1000 |
+                 0x2000 | 0x4000,
+             "DualSense button mapping");
+    ExpectEq(input.leftStickX, 128, "DualSense neutral LX");
+    ExpectEq(input.leftStickY, 128, "DualSense neutral LY");
+    ExpectEq(input.leftTrigger, 255, "DualSense left trigger");
+    ExpectEq(input.rightTrigger, 128, "DualSense right trigger");
+    Expect(input.gyroX == 11 && input.gyroY == 33 && input.gyroZ == -22,
+           "DualSense gyro axis mapping");
+    Expect(input.accelX == 44 && input.accelY == 66 && input.accelZ == -55,
+           "DualSense accel axis mapping");
+
+    const auto serialized = input.Serialize();
+    ExpectEq(serialized[0], 128, "DualSense serialize LX");
+    ExpectEq(serialized[4], 255, "DualSense serialize L2");
+    ExpectEq(serialized[7], input.buttons & 0xFF, "DualSense serialize buttons low");
+}
+
+void TestDualSenseTouchSuppressionAndBackButtons() {
+    SteamControllerState state{};
+    SetButtons(state,
+               0,
+               SteamController::BTN_R5,
+               SteamController::BTN_TP_RT,
+               SteamController::BTN_TP_LT | SteamController::BTN_TP_LT_CLICK);
+    state.rightPadX = 0;
+    state.rightPadY = 0;
+    state.leftPadX = -20000;
+    state.leftPadY = 0;
+
+    VirtualControllerRuntimeSettings settings{};
+    settings.trackpadDpadEnabled = true;
+    settings.useRightTrackpadForDpad = false;
+    settings.backButtonMappings.Set(BackButtonId::R5, BackButtonAction::Guide);
+
+    const ViiperDualSenseInputState input = BuildViiperDualSenseInput(state, settings);
+    ExpectEq(input.dpad, 0x04, "DualSense left trackpad maps to D-pad left");
+    Expect(input.touch1Active, "DualSense right trackpad remains touch slot 1");
+    Expect(!input.touch2Active, "DualSense left trackpad suppressed when used as D-pad");
+    Expect((input.buttons & 0x0002) == 0,
+           "DualSense suppressed left trackpad click is not touchpad click");
+    Expect((input.buttons & 0x0001) != 0, "DualSense back button can map to PS");
+}
+
 ViiperDualShock4InputState BuildLeftTrackpadDpadDs4(int16_t x, int16_t y) {
     SteamControllerState state{};
     SetButtons(state, 0, 0, 0, SteamController::BTN_TP_LT_CLICK);
@@ -287,6 +365,26 @@ void TestFeedbackDecoding() {
            "DS4 feedback decode");
     ExpectEq(large, 240, "DS4 feedback large");
     ExpectEq(small, 10, "DS4 feedback small");
+
+    ViiperDualSenseFeedbackState dualSense{};
+    uint8_t ds5[27] = {};
+    ds5[0] = 0x03;
+    ds5[1] = 0x04;
+    ds5[2] = 33;
+    ds5[3] = 220;
+    ds5[4] = 0x04;
+    ds5[5] = 0x02;
+    ds5[16] = 0x03;
+    ds5[26] = 0x7F;
+    Expect(DecodeViiperDualSenseFeedback(ds5, sizeof(ds5), dualSense),
+           "DualSense feedback decode");
+    ExpectEq(dualSense.enableBits1, 0x03, "DualSense feedback enable bits 1");
+    ExpectEq(dualSense.rumbleLeft, 220, "DualSense feedback left rumble");
+    ExpectEq(dualSense.rumbleRight, 33, "DualSense feedback right rumble");
+    ExpectEq(dualSense.enableBits3, 0x04, "DualSense feedback enable bits 3");
+    ExpectEq(dualSense.rightTriggerEffect[0], 0x02, "DualSense right trigger effect");
+    ExpectEq(dualSense.leftTriggerEffect[0], 0x03, "DualSense left trigger effect");
+    ExpectEq(dualSense.leftTriggerEffect[10], 0x7F, "DualSense left trigger effect tail");
 }
 
 } // namespace
@@ -297,6 +395,8 @@ int main() {
     TestXbox360TrackpadDpadAndBackButtons();
     TestDualShock4Mapping();
     TestDualShock4TouchSuppressionAndBackButtons();
+    TestDualSenseMapping();
+    TestDualSenseTouchSuppressionAndBackButtons();
     TestTrackpadDpadSectorWidths();
     TestFeedbackDecoding();
 

@@ -9,6 +9,7 @@
 #include <atomic>
 #include <chrono>
 #include <memory>
+#include <mutex>
 
 // Manages the Steam Controller lifecycle: device discovery, lizard mode
 // disable/enable, and the heartbeat that keeps lizard mode off.
@@ -63,7 +64,9 @@ private:
     void StopReadLoop();
     void ReadLoop();
     void UpdateTrackpadHaptics(const SteamControllerState& state);
-    void MaintainDualShock4Imu(const SteamControllerState& state);
+    void MaintainMotionImu(const SteamControllerState& state);
+    void HandleVirtualFeedback(const ViiperFeedbackState& feedback);
+    void ApplyDualSenseHaptics(const SteamControllerState& state);
     void ApplyTrackpadRuntimeSettings();
     bool IsTrackpadDpadActive() const;
     bool ShouldTrackpadDpadLockMouse() const;
@@ -95,6 +98,11 @@ private:
     uint32_t                           m_lastImuTimestamp = 0;
     std::chrono::steady_clock::time_point m_lastImuProgress{};
     std::chrono::steady_clock::time_point m_lastImuReassert{};
+    std::atomic<uint8_t>               m_lastLeftTriggerPosition{0};
+    std::atomic<uint8_t>               m_lastRightTriggerPosition{0};
+    std::mutex                         m_dualSenseFeedbackMutex;
+    ViiperDualSenseFeedbackState       m_lastDualSenseFeedback;
+    bool                               m_hasDualSenseFeedback = false;
     bool                               m_hideOriginalController = true;
     bool                               m_originalHidden       = false;
     VirtualControllerMode              m_outputMode           = VirtualControllerMode::Xbox360;

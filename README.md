@@ -2,7 +2,7 @@
 
 [한국어 설명](README-fork-KR.md)
 
-This fork turns a Steam Controller into a VIIPER-backed virtual Xbox 360 or DualShock 4 controller. The main branch goal is parity with the original Xbox 360 behavior plus native DualShock 4 features for games that support them.
+This fork turns a Steam Controller into a VIIPER-backed virtual Xbox 360, DualShock 4, or experimental DualSense controller. The main branch goal is parity with the original Xbox 360 behavior plus native PlayStation-controller features for games that support them.
 
 ## Fork Notes
 
@@ -10,11 +10,12 @@ This fork turns a Steam Controller into a VIIPER-backed virtual Xbox 360 or Dual
 - Release builds should ship `SteamlessController.exe` and the patched `viiper.exe` side by side.
 - Windows requires the generic [usbip-win2](https://github.com/vadimgrn/usbip-win2) driver so VIIPER can attach virtual USB devices to the OS.
 - For Steam usage, install [HidHide](https://github.com/nefarius/HidHide/releases/latest) so SteamlessController can hide the physical Steam Controller/Puck while Steamless Mode is active.
-- When using HidHide with Steam, enable Steamless Mode first, then restart Steam. If Steam is already running, Steam may see both the physical controller and the virtual DualShock 4 at the same time.
+- When using HidHide with Steam, enable Steamless Mode first, then restart Steam. If Steam is already running, Steam may see both the physical controller and the virtual PlayStation controller at the same time.
 - Might also need [Microsoft Visual C++ Redistributable 2015-2022 x64](https://aka.ms/vc14/vc_redist.x64.exe), if the app does not open.
 - Download the app from the [latest release](https://github.com/david419kr/steamless-controller-dualshock4/releases/latest), keep `viiper.exe` next to it, and run it directly.
-- To use native gyro in Steam games with DualShock 4 support, you may need to right-click the game in Steam, open Properties, and disable Steam Input for that game.
+- To use native gyro in Steam games with DualShock 4 or DualSense support, you may need to right-click the game in Steam, open Properties, and disable Steam Input for that game.
 - DualShock 4 mode supports buttons, sticks, triggers, native gyro/accelerometer output, touchpad output, rumble, Steam Controller trackpad haptics, trackpad D-pad, and L4/L5/R4/R5 back-button mapping.
+- DualSense mode is experimental. It adds DualSense USB HID identity, native gyro/accelerometer output, touchpad output, compatible rumble, adaptive-trigger output parsing, and Steam Controller haptic synthesis for DualSense trigger effects.
 - HidHide + DualShock 4 mode has been tested in Steam with native gyro controls working in **Pragmata**.
 - Native gyro input has also been tested outside Steam in **Cemu**.
 
@@ -31,13 +32,13 @@ A lightweight Windows system tray app that lets you use a **Steam Controller** a
 
 <img width="261" height="194" alt="image" src="https://github.com/user-attachments/assets/8e4a1355-d854-4b67-a486-590d225700f5" />
 
-When **Steamless Mode** is active, the app disables the controller's built-in keyboard/mouse emulation, reads raw HID input from the Steam Controller, and exposes it as a virtual Xbox 360 or DualShock 4 controller through VIIPER.
+When **Steamless Mode** is active, the app disables the controller's built-in keyboard/mouse emulation, reads raw HID input from the Steam Controller, and exposes it as a virtual Xbox 360, DualShock 4, or experimental DualSense controller through VIIPER.
 
 ## Features
 
 - System tray icon shows connection and mode status
-- **Steamless Mode** exposes the controller as Xbox 360 or DualShock 4
-- **Output Mode** switches between Xbox 360 and DualShock 4
+- **Steamless Mode** exposes the controller as Xbox 360, DualShock 4, or DualSense
+- **Output Mode** switches between Xbox 360, DualShock 4, and DualSense
 - **Trackpad Mouse** uses the right or left trackpad as a mouse cursor
 - **Trackpad D-pad** maps one trackpad to D-pad directions
 - **Back Button Mappings** maps L4/L5/R4/R5 to gamepad buttons
@@ -88,7 +89,7 @@ You can also build the patched VIIPER sidecar directly:
 powershell -ExecutionPolicy Bypass -File tools\build-viiper.ps1 -OutputDir build\release\Release
 ```
 
-The script clones upstream VIIPER `v0.6.1`, applies `third_party\viiper-patches\viiper-v0.6.1-ds4-compat.patch`, builds `viiper.exe`, and marks it as `v0.6.1-steamless3`. Stock `v0.6.1` is intentionally rejected in DualShock 4 mode because it does not expose the DS4 reports required by native gyro/touch clients.
+The script clones upstream VIIPER `v0.6.1`, applies `third_party\viiper-patches\viiper-v0.6.1-ds4-compat.patch` and `third_party\viiper-patches\viiper-v0.6.1-dualsense.patch`, builds `viiper.exe`, and marks it as `v0.6.1-steamless4`. Stock `v0.6.1` is intentionally rejected in PlayStation modes because it does not expose the reports required by native gyro/touch/trigger clients.
 
 ## Bundled Installer
 
@@ -126,7 +127,7 @@ When SteamlessController starts the bundled VIIPER sidecar, VIIPER logs to `%LOC
 
 The Steam Controller exposes a vendor HID collection, usage page `0xFF00`, that carries all game input in a 54-byte report, ID `0x42`, at about 60 Hz. By default the firmware runs in keyboard/mouse emulation mode so the controller works without drivers.
 
-SteamlessController sends HID feature reports to disable that firmware mode, reads raw input reports, and translates them into VIIPER Xbox 360 or DualShock 4 input states. A background heartbeat re-sends the disable command every 800 ms to keep the controller in gamepad mode.
+SteamlessController sends HID feature reports to disable that firmware mode, reads raw input reports, and translates them into VIIPER Xbox 360, DualShock 4, or DualSense input states. A background heartbeat re-sends the disable command every 800 ms to keep the controller in gamepad mode.
 
 The full input report layout is documented in [`src/steam/SteamController.h`](src/steam/SteamController.h).
 

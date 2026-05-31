@@ -41,6 +41,11 @@ static bool IsValidBackButtonAction(DWORD value) {
     return value <= static_cast<DWORD>(BackButtonAction::Guide);
 }
 
+static bool IsPlayStationOutputMode(VirtualControllerMode mode) {
+    return mode == VirtualControllerMode::DualShock4 ||
+           mode == VirtualControllerMode::DualSense;
+}
+
 TrayApp::TrayApp() {
     g_app = this;
 }
@@ -183,6 +188,11 @@ LRESULT TrayApp::HandleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             RefreshBackButtonMappingWindow();
             SaveSettings();
             break;
+        case IDM_OUTPUT_DSENSE:
+            m_controller->SetOutputMode(VirtualControllerMode::DualSense);
+            RefreshBackButtonMappingWindow();
+            SaveSettings();
+            break;
         case IDM_HIDE_ORIGINAL:
             m_controller->SetHideOriginalControllerEnabled(!m_controller->IsHideOriginalControllerEnabled());
             SaveSettings();
@@ -299,7 +309,7 @@ static const wchar_t* VirtualControllerErrorInfo(VirtualControllerError error) {
     case VirtualControllerError::ViiperExeMissing:
         return L"Build or install the patched viiper.exe sidecar next to SteamlessController.exe.";
     case VirtualControllerError::ViiperUnsupported:
-        return L"Use the SteamlessController patched VIIPER sidecar; stock v0.6.1 is rejected in DualShock 4 mode.";
+        return L"Use the SteamlessController patched VIIPER sidecar; stock v0.6.1 is rejected in PlayStation modes.";
     case VirtualControllerError::UsbIpDriverMissing:
         return L"Install usbip-win2; VIIPER needs it to attach virtual USB devices on Windows.";
     case VirtualControllerError::DeviceCreateFailed:
@@ -539,9 +549,12 @@ void TrayApp::LoadSettings() {
     DWORD outputMode = 0, outputModeSize = sizeof(outputMode);
     if (RegQueryValueExW(key, L"OutputMode", nullptr, nullptr,
                          reinterpret_cast<LPBYTE>(&outputMode), &outputModeSize) == ERROR_SUCCESS) {
-        m_controller->SetOutputMode(outputMode == 1
-            ? VirtualControllerMode::DualShock4
-            : VirtualControllerMode::Xbox360);
+        VirtualControllerMode mode = VirtualControllerMode::Xbox360;
+        if (outputMode == 1)
+            mode = VirtualControllerMode::DualShock4;
+        else if (outputMode == 2)
+            mode = VirtualControllerMode::DualSense;
+        m_controller->SetOutputMode(mode);
     }
 
     m_controller->SetTrackpadMouseEnabled(readBool(L"TrackpadMouse",   false));
@@ -582,7 +595,11 @@ void TrayApp::SaveSettings() {
     writeBool(L"TrackpadDpad",    m_controller->IsTrackpadDpadEnabled());
     writeBool(L"TrackpadDpadRight", m_controller->IsTrackpadDpadUseRight());
     writeBool(L"HideOriginalController", m_controller->IsHideOriginalControllerEnabled());
-    DWORD outputMode = m_controller->GetOutputMode() == VirtualControllerMode::DualShock4 ? 1u : 0u;
+    DWORD outputMode = 0u;
+    if (m_controller->GetOutputMode() == VirtualControllerMode::DualShock4)
+        outputMode = 1u;
+    else if (m_controller->GetOutputMode() == VirtualControllerMode::DualSense)
+        outputMode = 2u;
     RegSetValueExW(key, L"OutputMode", 0, REG_DWORD,
                    reinterpret_cast<const BYTE*>(&outputMode), sizeof(outputMode));
     writeAction(L"BackMapL4", m_controller->GetBackButtonMapping(BackButtonId::L4));
@@ -675,10 +692,13 @@ void TrayApp::RefreshBackButtonMappingWindow() {
     if (!m_backButtonHwnd)
         return;
 
-    const bool ds4Mode = m_controller->GetOutputMode() == VirtualControllerMode::DualShock4;
+    const VirtualControllerMode mode = m_controller->GetOutputMode();
+    const bool playStationMode = IsPlayStationOutputMode(mode);
     SetWindowTextW(m_backButtonHwnd,
-                   ds4Mode ? L"Back Button Mappings - DualShock 4"
-                           : L"Back Button Mappings - Xbox 360");
+                   mode == VirtualControllerMode::DualSense
+                       ? L"Back Button Mappings - DualSense"
+                       : playStationMode ? L"Back Button Mappings - DualShock 4"
+                                         : L"Back Button Mappings - Xbox 360");
 
     for (uint8_t i = 0; i < static_cast<uint8_t>(BackButtonId::Count); ++i) {
         const auto id = static_cast<BackButtonId>(i);
@@ -694,7 +714,7 @@ void TrayApp::PopulateBackButtonCombo(HWND combo, BackButtonAction selected) {
 
     SendMessageW(combo, CB_RESETCONTENT, 0, 0);
 
-    const bool ds4Mode = m_controller->GetOutputMode() == VirtualControllerMode::DualShock4;
+    const bool playStationMode = IsPlayStationOutputMode(m_controller->GetOutputMode());
     int selectedIndex = 0;
     auto add = [&](const wchar_t* label, BackButtonAction action) {
         const int index = static_cast<int>(SendMessageW(combo, CB_ADDSTRING, 0,
@@ -710,19 +730,19 @@ void TrayApp::PopulateBackButtonCombo(HWND combo, BackButtonAction selected) {
     add(L"D-pad Down", BackButtonAction::DpadDown);
     add(L"D-pad Left", BackButtonAction::DpadLeft);
     add(L"D-pad Right", BackButtonAction::DpadRight);
-    add(ds4Mode ? L"Cross" : L"A", BackButtonAction::South);
-    add(ds4Mode ? L"Circle" : L"B", BackButtonAction::East);
-    add(ds4Mode ? L"Square" : L"X", BackButtonAction::West);
-    add(ds4Mode ? L"Triangle" : L"Y", BackButtonAction::North);
-    add(ds4Mode ? L"L1" : L"LB", BackButtonAction::LeftBumper);
-    add(ds4Mode ? L"R1" : L"RB", BackButtonAction::RightBumper);
-    add(ds4Mode ? L"L2" : L"LT", BackButtonAction::LeftTrigger);
-    add(ds4Mode ? L"R2" : L"RT", BackButtonAction::RightTrigger);
-    add(ds4Mode ? L"L3" : L"Left Stick Click", BackButtonAction::LeftStick);
-    add(ds4Mode ? L"R3" : L"Right Stick Click", BackButtonAction::RightStick);
-    add(ds4Mode ? L"Share" : L"Back", BackButtonAction::Back);
-    add(ds4Mode ? L"Options" : L"Start", BackButtonAction::Start);
-    add(ds4Mode ? L"PS" : L"Guide", BackButtonAction::Guide);
+    add(playStationMode ? L"Cross" : L"A", BackButtonAction::South);
+    add(playStationMode ? L"Circle" : L"B", BackButtonAction::East);
+    add(playStationMode ? L"Square" : L"X", BackButtonAction::West);
+    add(playStationMode ? L"Triangle" : L"Y", BackButtonAction::North);
+    add(playStationMode ? L"L1" : L"LB", BackButtonAction::LeftBumper);
+    add(playStationMode ? L"R1" : L"RB", BackButtonAction::RightBumper);
+    add(playStationMode ? L"L2" : L"LT", BackButtonAction::LeftTrigger);
+    add(playStationMode ? L"R2" : L"RT", BackButtonAction::RightTrigger);
+    add(playStationMode ? L"L3" : L"Left Stick Click", BackButtonAction::LeftStick);
+    add(playStationMode ? L"R3" : L"Right Stick Click", BackButtonAction::RightStick);
+    add(playStationMode ? L"Create / Share" : L"Back", BackButtonAction::Back);
+    add(playStationMode ? L"Options" : L"Start", BackButtonAction::Start);
+    add(playStationMode ? L"PS" : L"Guide", BackButtonAction::Guide);
 
     SendMessageW(combo, CB_SETCURSEL, static_cast<WPARAM>(selectedIndex), 0);
 }
@@ -761,8 +781,7 @@ void TrayApp::ShowContextMenu() {
     bool hidHideAvailable = m_controller->IsHidHideAvailable();
     bool backButtonMappingsActive = m_controller->HasBackButtonMappings();
     VirtualControllerMode outputMode = m_controller->GetOutputMode();
-    const bool ds4Mode = outputMode == VirtualControllerMode::DualShock4;
-    const bool dpadLocksMouse = ds4Mode && trackpadDpadOn;
+    const bool dpadLocksMouse = IsPlayStationOutputMode(outputMode) && trackpadDpadOn;
 
     HMENU menu = CreatePopupMenu();
 
@@ -810,6 +829,9 @@ void TrayApp::ShowContextMenu() {
     AppendMenuW(outputMenu,
                 MF_STRING | (outputMode == VirtualControllerMode::DualShock4 ? MF_CHECKED : MF_UNCHECKED),
                 IDM_OUTPUT_DS4, L"DualShock 4");
+    AppendMenuW(outputMenu,
+                MF_STRING | (outputMode == VirtualControllerMode::DualSense ? MF_CHECKED : MF_UNCHECKED),
+                IDM_OUTPUT_DSENSE, L"DualSense");
     AppendMenuW(menu, MF_POPUP | MF_STRING, reinterpret_cast<UINT_PTR>(outputMenu), L"Output Mode");
 
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);

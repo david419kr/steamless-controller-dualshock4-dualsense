@@ -12,10 +12,10 @@ struct SteamControllerState;
 
 class VirtualController {
 public:
-    using RumbleFn = std::function<void(uint8_t largeMotor, uint8_t smallMotor)>;
+    using FeedbackFn = std::function<void(const ViiperFeedbackState& feedback)>;
 
     explicit VirtualController(VirtualControllerMode mode = VirtualControllerMode::Xbox360,
-                               RumbleFn rumbleFn = {});
+                               FeedbackFn feedbackFn = {});
     ~VirtualController();
     VirtualController(const VirtualController&) = delete;
     VirtualController& operator=(const VirtualController&) = delete;
@@ -31,13 +31,13 @@ public:
     void SetTrackpadMouseClaim(bool enabled, bool useLeftTrackpad);
     void SetTrackpadDpadClaim(bool enabled, bool useRightTrackpad);
     void SetBackButtonMappings(const BackButtonMappings& mappings);
-    void OnRumble(uint8_t largeMotor, uint8_t smallMotor);
+    void OnFeedback(const ViiperFeedbackState& feedback);
 
 private:
     VirtualControllerRuntimeSettings CurrentSettings() const;
 
     VirtualControllerMode m_mode = VirtualControllerMode::Xbox360;
-    RumbleFn m_rumbleFn;
+    FeedbackFn m_feedbackFn;
     ViiperClient m_viiper;
     std::atomic<bool> m_valid{false};
     VirtualControllerError m_error = VirtualControllerError::None;
@@ -46,4 +46,6 @@ private:
     std::atomic<bool> m_trackpadDpadEnabled{false};
     std::atomic<bool> m_useRightTrackpadForDpad{false};
     std::array<std::atomic<uint8_t>, static_cast<size_t>(BackButtonId::Count)> m_backButtonMappings{};
+    std::atomic<uint8_t> m_batteryLevelPercent{100};
+    std::atomic<uint8_t> m_chargeState{0};
 };

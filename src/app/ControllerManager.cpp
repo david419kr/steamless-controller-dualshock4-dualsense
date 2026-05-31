@@ -1,6 +1,7 @@
 #include "ControllerManager.h"
 #include "VirtualController.h"
 #include "steam/SteamController.h"
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <memory>
@@ -10,6 +11,27 @@ static constexpr uint32_t POLL_OPEN_REPORT_TIMEOUT_MS = 75;
 
 static uint8_t ButtonByte(const SteamControllerState& state, int index) {
     return static_cast<uint8_t>((state.buttons >> (index * 8)) & 0xFF);
+}
+
+static uint8_t TriggerToByte(int16_t raw) {
+    return static_cast<uint8_t>(std::clamp<int>(raw >> 7, 0, 255));
+}
+
+static bool IsMotionOutputMode(VirtualControllerMode mode) {
+    return mode == VirtualControllerMode::DualShock4 ||
+           mode == VirtualControllerMode::DualSense;
+}
+
+static SteamControllerDualSenseHaptics ToSteamHaptics(const ViiperDualSenseFeedbackState& feedback) {
+    SteamControllerDualSenseHaptics haptics{};
+    haptics.enableBits1 = feedback.enableBits1;
+    haptics.enableBits2 = feedback.enableBits2;
+    haptics.rumbleRight = feedback.rumbleRight;
+    haptics.rumbleLeft = feedback.rumbleLeft;
+    haptics.enableBits3 = feedback.enableBits3;
+    haptics.rightTriggerEffect = feedback.rightTriggerEffect;
+    haptics.leftTriggerEffect = feedback.leftTriggerEffect;
+    return haptics;
 }
 
 static uint8_t TrackpadDpadMask(int16_t x, int16_t y, bool active) {
@@ -68,7 +90,7 @@ void ControllerManager::PollForController() {
 void ControllerManager::EnableGameMode() {
     if (!m_connected || m_gameModeActive) return;
     if (!g_ctrl->DisableLizardMode()) return;
-    if (!g_ctrl->SetImuEnabled(m_outputMode == VirtualControllerMode::DualShock4)) {
+    if (!g_ctrl->SetImuEnabled(IsMotionOutputMode(m_outputMode))) {
         g_ctrl->EnableLizardMode();
         return;
     }
@@ -79,13 +101,8 @@ void ControllerManager::EnableGameMode() {
 
     m_virtual = std::make_unique<VirtualController>(
         m_outputMode,
-        [mode = m_outputMode](uint8_t largeMotor, uint8_t smallMotor) {
-            if (!g_ctrl)
-                return;
-            if (mode == VirtualControllerMode::DualShock4)
-                g_ctrl->SetDs4EnhancedRumble(largeMotor, smallMotor);
-            else
-                g_ctrl->SetRumble(largeMotor, smallMotor);
+        [this](const ViiperFeedbackState& feedback) {
+            HandleVirtualFeedback(feedback);
         });
     if (!m_virtual->IsValid()) {
         const VirtualControllerError error = m_virtual->Error();
@@ -104,6 +121,12 @@ void ControllerManager::EnableGameMode() {
     m_gameModeActive = true;
     m_trackpad.Reset();
     m_hasLastImuTimestamp = false;
+    {
+        std::lock_guard<std::mutex> lock(m_dualSenseFeedbackMutex);
+        m_hasDualSenseFeedback = false;
+    }
+    m_lastLeftTriggerPosition.store(0, std::memory_order_relaxed);
+    m_lastRightTriggerPosition.store(0, std::memory_order_relaxed);
     m_lastImuProgress = std::chrono::steady_clock::now();
     m_lastImuReassert = m_lastImuProgress;
     ApplyTrackpadRuntimeSettings();
@@ -118,6 +141,10 @@ void ControllerManager::DisableGameMode() {
     if (g_ctrl)
         g_ctrl->ClearTrackpadHaptics();
     m_hasLastImuTimestamp = false;
+    {
+        std::lock_guard<std::mutex> lock(m_dualSenseFeedbackMutex);
+        m_hasDualSenseFeedback = false;
+    }
     m_virtual.reset();
     g_ctrl->SetImuEnabled(false);
     g_ctrl->EnableLizardMode();
@@ -210,7 +237,7 @@ bool ControllerManager::IsTrackpadDpadActive() const {
 }
 
 bool ControllerManager::ShouldTrackpadDpadLockMouse() const {
-    return m_outputMode == VirtualControllerMode::DualShock4 && IsTrackpadDpadActive();
+    return IsMotionOutputMode(m_outputMode) && IsTrackpadDpadActive();
 }
 
 bool ControllerManager::ShouldLinkTrackpadSidesForXbox() const {
@@ -295,7 +322,7 @@ void ControllerManager::UpdateTrackpadHaptics(const SteamControllerState& state)
         rightClickEligible = true;
     }
 
-    if (m_outputMode == VirtualControllerMode::DualShock4) {
+    if (IsMotionOutputMode(m_outputMode)) {
         const bool nativeLeftTouchpad = !mouseLeft && !dpadLeft;
         const bool nativeRightTouchpad = !mouseRight && !dpadRight;
 
@@ -393,8 +420,8 @@ void ControllerManager::UpdateTrackpadHaptics(const SteamControllerState& state)
                       m_lastHapticRightPulse, rightStrongPulse);
 }
 
-void ControllerManager::MaintainDualShock4Imu(const SteamControllerState& state) {
-    if (!g_ctrl || !m_gameModeActive || m_outputMode != VirtualControllerMode::DualShock4)
+void ControllerManager::MaintainMotionImu(const SteamControllerState& state) {
+    if (!g_ctrl || !m_gameModeActive || !IsMotionOutputMode(m_outputMode))
         return;
 
     const auto now = std::chrono::steady_clock::now();
@@ -416,6 +443,48 @@ void ControllerManager::MaintainDualShock4Imu(const SteamControllerState& state)
 
     if (g_ctrl->SetImuEnabled(true))
         m_lastImuReassert = now;
+}
+
+void ControllerManager::HandleVirtualFeedback(const ViiperFeedbackState& feedback) {
+    if (!g_ctrl)
+        return;
+
+    if (feedback.mode == VirtualControllerMode::DualShock4) {
+        g_ctrl->SetDs4EnhancedRumble(feedback.largeMotor, feedback.smallMotor);
+    } else if (feedback.mode == VirtualControllerMode::DualSense) {
+        {
+            std::lock_guard<std::mutex> lock(m_dualSenseFeedbackMutex);
+            m_lastDualSenseFeedback = feedback.dualSense;
+            m_hasDualSenseFeedback = true;
+        }
+        g_ctrl->SetDualSenseHaptics(ToSteamHaptics(feedback.dualSense),
+                                    m_lastLeftTriggerPosition.load(std::memory_order_relaxed),
+                                    m_lastRightTriggerPosition.load(std::memory_order_relaxed));
+    } else {
+        g_ctrl->SetRumble(feedback.largeMotor, feedback.smallMotor);
+    }
+}
+
+void ControllerManager::ApplyDualSenseHaptics(const SteamControllerState& state) {
+    if (!g_ctrl || !m_gameModeActive || m_outputMode != VirtualControllerMode::DualSense)
+        return;
+
+    const uint8_t leftTriggerPosition = TriggerToByte(state.leftTrigger);
+    const uint8_t rightTriggerPosition = TriggerToByte(state.rightTrigger);
+    m_lastLeftTriggerPosition.store(leftTriggerPosition, std::memory_order_relaxed);
+    m_lastRightTriggerPosition.store(rightTriggerPosition, std::memory_order_relaxed);
+
+    ViiperDualSenseFeedbackState feedback{};
+    {
+        std::lock_guard<std::mutex> lock(m_dualSenseFeedbackMutex);
+        if (!m_hasDualSenseFeedback)
+            return;
+        feedback = m_lastDualSenseFeedback;
+    }
+
+    g_ctrl->SetDualSenseHaptics(ToSteamHaptics(feedback),
+                                leftTriggerPosition,
+                                rightTriggerPosition);
 }
 
 void ControllerManager::TryOpen(uint32_t activeReportTimeoutMs) {
@@ -469,7 +538,8 @@ void ControllerManager::ReadLoop() {
         if (!SteamController::IsStateReportId(buf[0])) continue;
         SteamControllerState state;
         if (!SteamController::ParseStateReport(buf, n, state)) continue;
-        MaintainDualShock4Imu(state);
+        MaintainMotionImu(state);
+        ApplyDualSenseHaptics(state);
         if (m_virtual) m_virtual->Update(state);
         UpdateTrackpadHaptics(state);
         m_trackpad.Update(buf, n);
