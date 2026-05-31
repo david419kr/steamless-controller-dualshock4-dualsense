@@ -17,6 +17,7 @@ bool ParseViiperBusIdResponse(const std::string& json, uint32_t& busId);
 bool ParseViiperDeviceResponse(const std::string& json, uint32_t& busId, std::string& devId);
 bool IsViiperUsbIpDriverMissingResponse(const std::string& json);
 bool IsViiperVersionSupported(const std::string& version);
+bool IsViiperDualShock4CompatibleVersion(const std::string& version);
 
 class ViiperClient {
 public:
@@ -36,8 +37,8 @@ public:
     std::wstring ErrorMessage() const { return m_errorMessage; }
 
 private:
-    bool EnsureServerReady();
-    bool PingServer(std::string* version = nullptr);
+    bool EnsureServerReady(VirtualControllerMode mode);
+    bool PingServer(VirtualControllerMode mode, std::string* version = nullptr);
     bool SpawnBundledServer();
     bool Request(const std::string& path, const std::string& payload, std::string& response);
     bool CreateBus();

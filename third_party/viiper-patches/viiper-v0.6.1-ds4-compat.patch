@@ -1,0 +1,471 @@
+diff --git a/device/dualshock4/device.go b/device/dualshock4/device.go
+index 6e041d7..502cf56 100644
+--- a/device/dualshock4/device.go
++++ b/device/dualshock4/device.go
+@@ -4,7 +4,6 @@ import (
+ 	"encoding/binary"
+ 	"log/slog"
+ 	"sync"
+-	"sync/atomic"
+ 
+ 	"github.com/Alia5/VIIPER/device"
+ 	"github.com/Alia5/VIIPER/usb"
+@@ -18,8 +17,20 @@ type DualShock4 struct {
+ 	outputFunc func(OutputState)
+ 	descriptor usb.Descriptor
+ 
+-	usbReportTimestamp uint32
+-	usbPacketCounter   uint32
++	usbReportTimestamp uint16
++	touchPacketCounter uint8
++	touch1Tracking     uint8
++	touch2Tracking     uint8
++	touch1WasActive    bool
++	touch2WasActive    bool
++}
++
++type inputReportState struct {
++	input              InputState
++	timestamp          uint16
++	touchPacketCounter uint8
++	touch1Tracking     uint8
++	touch2Tracking     uint8
+ }
+ 
+ func New(o *device.CreateOptions) (*DualShock4, error) {
+@@ -68,17 +79,37 @@ func (d *DualShock4) SetOutputCallback(f func(OutputState)) {
+ func (d *DualShock4) UpdateInputState(state *InputState) {
+ 	d.stateMu.Lock()
+ 	defer d.stateMu.Unlock()
+-	d.inputState = state
++	if state.Touch1Active && !d.touch1WasActive {
++		d.touch1Tracking = (d.touch1Tracking + 1) & 0x7F
++	}
++	if state.Touch2Active && !d.touch2WasActive {
++		d.touch2Tracking = (d.touch2Tracking + 1) & 0x7F
++	}
++	d.touch1WasActive = state.Touch1Active
++	d.touch2WasActive = state.Touch2Active
++	d.usbReportTimestamp++
++	d.touchPacketCounter++
++	st := *state
++	d.inputState = &st
++}
++
++func (d *DualShock4) inputReportState() inputReportState {
++	d.stateMu.Lock()
++	defer d.stateMu.Unlock()
++	return inputReportState{
++		input:              *d.inputState,
++		timestamp:          d.usbReportTimestamp,
++		touchPacketCounter: d.touchPacketCounter,
++		touch1Tracking:     d.touch1Tracking,
++		touch2Tracking:     d.touch2Tracking,
++	}
+ }
+ 
+ func (d *DualShock4) HandleTransfer(ep uint32, dir uint32, out []byte) []byte {
+ 	if dir == usbip.DirIn {
+ 		switch ep {
+ 		case 4:
+-			d.stateMu.Lock()
+-			st := *d.inputState
+-			d.stateMu.Unlock()
+-			return d.buildUSBInputReport(st)
++			return d.buildUSBInputReport(d.inputReportState())
+ 		default:
+ 			return nil
+ 		}
+@@ -121,10 +152,7 @@ func (d *DualShock4) HandleControl(bmRequestType, bRequest uint8, wValue, _ /* w
+ 
+ 	if bmRequestType == 0xA1 && bRequest == hidGetReport {
+ 		if reportType == reportTypeInput && reportID == ReportIDInput {
+-			d.stateMu.Lock()
+-			st := *d.inputState
+-			d.stateMu.Unlock()
+-			report := d.buildUSBInputReport(st)
++			report := d.buildUSBInputReport(d.inputReportState())
+ 			if wLength > 0 && int(wLength) < len(report) {
+ 				return report[:wLength], true
+ 			}
+@@ -134,13 +162,15 @@ func (d *DualShock4) HandleControl(bmRequestType, bRequest uint8, wValue, _ /* w
+ 		if reportType == reportTypeFeature {
+ 			switch reportID {
+ 			case 0x02: // Gyro calibration
+-				return make([]byte, 37), true
++				return buildCalibrationFeatureReport(reportID, 37), true
+ 			case 0x03: // Device capabilities
+-				return make([]byte, 48), true
++				return buildCapabilitiesFeatureReport(), true
+ 			case 0x05: // Gyro calibration
+-				return make([]byte, 41), true
++				return buildCalibrationFeatureReport(reportID, 41), true
+ 			case 0x12: // Serial number
+-				return make([]byte, 16), true
++				return []byte{0x12, 0xC0, 0x13, 0x37, 0x01, 0x02, 0x03, 0x08, 0x25, 0x00, 0, 0, 0, 0, 0, 0}, true
++			case 0xA3: // Firmware version
++				return buildFirmwareFeatureReport(), true
+ 			}
+ 		}
+ 	}
+@@ -170,6 +200,63 @@ func (d *DualShock4) HandleControl(bmRequestType, bRequest uint8, wValue, _ /* w
+ 	return nil, false
+ }
+ 
++func buildCalibrationFeatureReport(reportID uint8, size int) []byte {
++	b := make([]byte, size)
++	b[0] = reportID
++
++	// These values describe a zero-bias, unit-scale IMU. Some DS4-native
++	// clients reject all-zero calibration reports and never expose gyro input.
++	putS16 := func(offset int, value int16) {
++		if offset+1 < len(b) {
++			binary.LittleEndian.PutUint16(b[offset:offset+2], uint16(value))
++		}
++	}
++
++	putS16(1, 0)  // gyro pitch bias
++	putS16(3, 0)  // gyro yaw bias
++	putS16(5, 0)  // gyro roll bias
++	putS16(7, 16) // pitch plus
++	putS16(9, -16)
++	putS16(11, 16) // yaw plus
++	putS16(13, -16)
++	putS16(15, 16) // roll plus
++	putS16(17, -16)
++	putS16(19, 1) // gyro speed plus
++	putS16(21, 1) // gyro speed minus
++	putS16(23, 8192)
++	putS16(25, -8192)
++	putS16(27, 8192)
++	putS16(29, -8192)
++	putS16(31, 8192)
++	putS16(33, -8192)
++	return b
++}
++
++func buildCapabilitiesFeatureReport() []byte {
++	b := make([]byte, 48)
++	b[0] = 0x03
++	b[2] = 0x27
++	b[4] = 0x02 | 0x04 | 0x08 | 0x40 // sensors, lightbar, vibration, touchpad
++	b[5] = 0x00                      // gamepad
++	binary.LittleEndian.PutUint16(b[10:12], 1)
++	binary.LittleEndian.PutUint16(b[12:14], 16)
++	binary.LittleEndian.PutUint16(b[14:16], 1)
++	binary.LittleEndian.PutUint16(b[16:18], 8192)
++	return b
++}
++
++func buildFirmwareFeatureReport() []byte {
++	return []byte{
++		0xA3, 0x41, 0x75, 0x67, 0x20, 0x20, 0x33, 0x20,
++		0x32, 0x30, 0x31, 0x33, 0x00, 0x00, 0x00, 0x00,
++		0x00, 0x30, 0x37, 0x3A, 0x30, 0x31, 0x3A, 0x31,
++		0x32, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
++		0x00, 0x00, 0x01, 0x00, 0x31, 0x03, 0x00, 0x00,
++		0x00, 0x49, 0x00, 0x05, 0x00, 0x00, 0x80, 0x03,
++		0x00,
++	}
++}
++
+ func (d *DualShock4) GetDescriptor() *usb.Descriptor {
+ 	return &d.descriptor
+ }
+@@ -178,7 +251,8 @@ func (x *DualShock4) GetDeviceSpecificArgs() map[string]any {
+ 	return map[string]any{}
+ }
+ 
+-func (d *DualShock4) buildUSBInputReport(s InputState) []byte {
++func (d *DualShock4) buildUSBInputReport(snapshot inputReportState) []byte {
++	s := snapshot.input
+ 	b := make([]byte, InputReportSize)
+ 
+ 	b[0] = ReportIDInput
+@@ -210,8 +284,6 @@ func (d *DualShock4) buildUSBInputReport(s InputState) []byte {
+ 	b[5] = (usbDPad & DPadMask) | (uint8(s.Buttons) & 0xF0)
+ 	b[6] = uint8(s.Buttons >> 8)
+ 
+-	counter := atomic.AddUint32(&d.usbPacketCounter, 1) & 0x3F
+-
+ 	psTouch := uint8(0)
+ 	if s.Buttons&ButtonPS != 0 {
+ 		psTouch |= ButtonPSUSB
+@@ -219,13 +291,12 @@ func (d *DualShock4) buildUSBInputReport(s InputState) []byte {
+ 	if s.Buttons&ButtonTouchpadClick != 0 {
+ 		psTouch |= ButtonTouchpadClickUSB
+ 	}
+-	b[7] = psTouch | uint8(counter<<CounterShift)
++	b[7] = psTouch
+ 
+ 	b[8] = s.L2
+ 	b[9] = s.R2
+ 
+-	ts := atomic.AddUint32(&d.usbReportTimestamp, 1)
+-	binary.LittleEndian.PutUint16(b[10:12], uint16(ts))
++	binary.LittleEndian.PutUint16(b[10:12], snapshot.timestamp)
+ 
+ 	b[12] = 0x00
+ 
+@@ -239,14 +310,17 @@ func (d *DualShock4) buildUSBInputReport(s InputState) []byte {
+ 
+ 	b[30] = BatteryFullyCharged
+ 
+-	touch1Counter := uint8(0)
++	b[33] = 1
++	b[34] = snapshot.touchPacketCounter
++
++	touch1Counter := snapshot.touch1Tracking & 0x7F
+ 	if !s.Touch1Active {
+ 		touch1Counter |= TouchInactiveMask
+ 	}
+ 	b[35] = touch1Counter
+ 	encodeTouchCoords(b[36:39], s.Touch1X, s.Touch1Y)
+ 
+-	touch2Counter := uint8(0)
++	touch2Counter := snapshot.touch2Tracking & 0x7F
+ 	if !s.Touch2Active {
+ 		touch2Counter |= TouchInactiveMask
+ 	}
+@@ -312,7 +400,6 @@ var defaultDescriptor = usb.Descriptor{
+ 
+ 							hid.AnyItem{Type: hid.ItemTypeGlobal, Tag: 0x08, Data: hid.Data{0x01}},
+ 
+-							hid.UsagePage{Page: hid.UsagePageGenericDesktop},
+ 							hid.Usage{Usage: hid.UsageX},
+ 							hid.Usage{Usage: hid.UsageY},
+ 							hid.Usage{Usage: hid.UsageZ},
+@@ -323,7 +410,6 @@ var defaultDescriptor = usb.Descriptor{
+ 							hid.ReportCount{Count: 4},
+ 							hid.Input{Flags: hid.MainData | hid.MainVar | hid.MainAbs},
+ 
+-							hid.UsagePage{Page: hid.UsagePageGenericDesktop},
+ 							hid.Usage{Usage: 0x39},
+ 							hid.LogicalMinimum{Min: 0},
+ 							hid.LogicalMaximum{Max: 7},
+@@ -348,11 +434,13 @@ var defaultDescriptor = usb.Descriptor{
+ 							hid.Usage{Usage: 0x20},
+ 							hid.ReportSize{Bits: 6},
+ 							hid.ReportCount{Count: 1},
++							hid.LogicalMinimum{Min: 0},
++							hid.LogicalMaximum{Max: 127},
+ 							hid.Input{Flags: hid.MainData | hid.MainVar | hid.MainAbs},
+ 
+ 							hid.UsagePage{Page: hid.UsagePageGenericDesktop},
+-							hid.Usage{Usage: 0x32},
+-							hid.Usage{Usage: 0x35},
++							hid.Usage{Usage: hid.UsageRx},
++							hid.Usage{Usage: hid.UsageRy},
+ 							hid.LogicalMinimum{Min: 0},
+ 							hid.LogicalMaximum{Max: 255},
+ 							hid.ReportSize{Bits: 8},
+@@ -360,22 +448,191 @@ var defaultDescriptor = usb.Descriptor{
+ 							hid.Input{Flags: hid.MainData | hid.MainVar | hid.MainAbs},
+ 
+ 							hid.UsagePage{Page: 0xFF00},
+-							hid.Usage{Usage: 0x20},
+-							hid.LogicalMinimum{Min: 0},
+-							hid.LogicalMaximum{Max: 255},
+-							hid.ReportSize{Bits: 8},
++							hid.Usage{Usage: 0x21},
+ 							hid.ReportCount{Count: 54},
+ 							hid.Input{Flags: hid.MainData | hid.MainVar | hid.MainAbs},
+ 
+ 							hid.AnyItem{Type: hid.ItemTypeGlobal, Tag: 0x08, Data: hid.Data{0x05}},
+ 
+-							hid.UsagePage{Page: 0xFF00},
+-							hid.Usage{Usage: 0x21},
+-							hid.LogicalMinimum{Min: 0},
+-							hid.LogicalMaximum{Max: 255},
+-							hid.ReportSize{Bits: 8},
++							hid.Usage{Usage: 0x22},
+ 							hid.ReportCount{Count: 31},
+ 							hid.Output{Flags: hid.MainData | hid.MainVar | hid.MainAbs},
++
++							hid.AnyItem{Type: hid.ItemTypeGlobal, Tag: 0x08, Data: hid.Data{0x04}},
++							hid.Usage{Usage: 0x23},
++							hid.ReportCount{Count: 36},
++							hid.Feature{Flags: hid.MainData | hid.MainVar | hid.MainAbs},
++							hid.AnyItem{Type: hid.ItemTypeGlobal, Tag: 0x08, Data: hid.Data{0x02}},
++							hid.Usage{Usage: 0x24},
++							hid.ReportCount{Count: 36},
++							hid.Feature{Flags: hid.MainData | hid.MainVar | hid.MainAbs},
++							hid.AnyItem{Type: hid.ItemTypeGlobal, Tag: 0x08, Data: hid.Data{0x08}},
++							hid.Usage{Usage: 0x25},
++							hid.ReportCount{Count: 3},
++							hid.Feature{Flags: hid.MainData | hid.MainVar | hid.MainAbs},
++							hid.AnyItem{Type: hid.ItemTypeGlobal, Tag: 0x08, Data: hid.Data{0x10}},
++							hid.Usage{Usage: 0x26},
++							hid.ReportCount{Count: 4},
++							hid.Feature{Flags: hid.MainData | hid.MainVar | hid.MainAbs},
++							hid.AnyItem{Type: hid.ItemTypeGlobal, Tag: 0x08, Data: hid.Data{0x11}},
++							hid.Usage{Usage: 0x27},
++							hid.ReportCount{Count: 2},
++							hid.Feature{Flags: hid.MainData | hid.MainVar | hid.MainAbs},
++							hid.AnyItem{Type: hid.ItemTypeGlobal, Tag: 0x08, Data: hid.Data{0x12}},
++							hid.UsagePage{Page: 0xFF02},
++							hid.Usage{Usage: 0x21},
++							hid.ReportCount{Count: 15},
++							hid.Feature{Flags: hid.MainData | hid.MainVar | hid.MainAbs},
++							hid.AnyItem{Type: hid.ItemTypeGlobal, Tag: 0x08, Data: hid.Data{0x13}},
++							hid.Usage{Usage: 0x22},
++							hid.ReportCount{Count: 22},
++							hid.Feature{Flags: hid.MainData | hid.MainVar | hid.MainAbs},
++							hid.AnyItem{Type: hid.ItemTypeGlobal, Tag: 0x08, Data: hid.Data{0x14}},
++							hid.UsagePage{Page: 0xFF05},
++							hid.Usage{Usage: 0x20},
++							hid.ReportCount{Count: 16},
++							hid.Feature{Flags: hid.MainData | hid.MainVar | hid.MainAbs},
++							hid.AnyItem{Type: hid.ItemTypeGlobal, Tag: 0x08, Data: hid.Data{0x15}},
++							hid.Usage{Usage: 0x21},
++							hid.ReportCount{Count: 44},
++							hid.Feature{Flags: hid.MainData | hid.MainVar | hid.MainAbs},
++							hid.UsagePage{Page: 0xFF80},
++							hid.AnyItem{Type: hid.ItemTypeGlobal, Tag: 0x08, Data: hid.Data{0x80}},
++							hid.Usage{Usage: 0x20},
++							hid.ReportCount{Count: 6},
++							hid.Feature{Flags: hid.MainData | hid.MainVar | hid.MainAbs},
++							hid.AnyItem{Type: hid.ItemTypeGlobal, Tag: 0x08, Data: hid.Data{0x81}},
++							hid.Usage{Usage: 0x21},
++							hid.ReportCount{Count: 6},
++							hid.Feature{Flags: hid.MainData | hid.MainVar | hid.MainAbs},
++							hid.AnyItem{Type: hid.ItemTypeGlobal, Tag: 0x08, Data: hid.Data{0x82}},
++							hid.Usage{Usage: 0x22},
++							hid.ReportCount{Count: 5},
++							hid.Feature{Flags: hid.MainData | hid.MainVar | hid.MainAbs},
++							hid.AnyItem{Type: hid.ItemTypeGlobal, Tag: 0x08, Data: hid.Data{0x83}},
++							hid.Usage{Usage: 0x23},
++							hid.ReportCount{Count: 1},
++							hid.Feature{Flags: hid.MainData | hid.MainVar | hid.MainAbs},
++							hid.AnyItem{Type: hid.ItemTypeGlobal, Tag: 0x08, Data: hid.Data{0x84}},
++							hid.Usage{Usage: 0x24},
++							hid.ReportCount{Count: 4},
++							hid.Feature{Flags: hid.MainData | hid.MainVar | hid.MainAbs},
++							hid.AnyItem{Type: hid.ItemTypeGlobal, Tag: 0x08, Data: hid.Data{0x85}},
++							hid.Usage{Usage: 0x25},
++							hid.ReportCount{Count: 6},
++							hid.Feature{Flags: hid.MainData | hid.MainVar | hid.MainAbs},
++							hid.AnyItem{Type: hid.ItemTypeGlobal, Tag: 0x08, Data: hid.Data{0x86}},
++							hid.Usage{Usage: 0x26},
++							hid.ReportCount{Count: 6},
++							hid.Feature{Flags: hid.MainData | hid.MainVar | hid.MainAbs},
++							hid.AnyItem{Type: hid.ItemTypeGlobal, Tag: 0x08, Data: hid.Data{0x87}},
++							hid.Usage{Usage: 0x27},
++							hid.ReportCount{Count: 35},
++							hid.Feature{Flags: hid.MainData | hid.MainVar | hid.MainAbs},
++							hid.AnyItem{Type: hid.ItemTypeGlobal, Tag: 0x08, Data: hid.Data{0x88}},
++							hid.Usage{Usage: 0x28},
++							hid.ReportCount{Count: 34},
++							hid.Feature{Flags: hid.MainData | hid.MainVar | hid.MainAbs},
++							hid.AnyItem{Type: hid.ItemTypeGlobal, Tag: 0x08, Data: hid.Data{0x89}},
++							hid.Usage{Usage: 0x29},
++							hid.ReportCount{Count: 2},
++							hid.Feature{Flags: hid.MainData | hid.MainVar | hid.MainAbs},
++							hid.AnyItem{Type: hid.ItemTypeGlobal, Tag: 0x08, Data: hid.Data{0x90}},
++							hid.Usage{Usage: 0x30},
++							hid.ReportCount{Count: 5},
++							hid.Feature{Flags: hid.MainData | hid.MainVar | hid.MainAbs},
++							hid.AnyItem{Type: hid.ItemTypeGlobal, Tag: 0x08, Data: hid.Data{0x91}},
++							hid.Usage{Usage: 0x31},
++							hid.ReportCount{Count: 3},
++							hid.Feature{Flags: hid.MainData | hid.MainVar | hid.MainAbs},
++							hid.AnyItem{Type: hid.ItemTypeGlobal, Tag: 0x08, Data: hid.Data{0x92}},
++							hid.Usage{Usage: 0x32},
++							hid.ReportCount{Count: 3},
++							hid.Feature{Flags: hid.MainData | hid.MainVar | hid.MainAbs},
++							hid.AnyItem{Type: hid.ItemTypeGlobal, Tag: 0x08, Data: hid.Data{0x93}},
++							hid.Usage{Usage: 0x33},
++							hid.ReportCount{Count: 12},
++							hid.Feature{Flags: hid.MainData | hid.MainVar | hid.MainAbs},
++							hid.AnyItem{Type: hid.ItemTypeGlobal, Tag: 0x08, Data: hid.Data{0xA0}},
++							hid.Usage{Usage: 0x40},
++							hid.ReportCount{Count: 6},
++							hid.Feature{Flags: hid.MainData | hid.MainVar | hid.MainAbs},
++							hid.AnyItem{Type: hid.ItemTypeGlobal, Tag: 0x08, Data: hid.Data{0xA1}},
++							hid.Usage{Usage: 0x41},
++							hid.ReportCount{Count: 1},
++							hid.Feature{Flags: hid.MainData | hid.MainVar | hid.MainAbs},
++							hid.AnyItem{Type: hid.ItemTypeGlobal, Tag: 0x08, Data: hid.Data{0xA2}},
++							hid.Usage{Usage: 0x42},
++							hid.ReportCount{Count: 1},
++							hid.Feature{Flags: hid.MainData | hid.MainVar | hid.MainAbs},
++							hid.AnyItem{Type: hid.ItemTypeGlobal, Tag: 0x08, Data: hid.Data{0xA3}},
++							hid.Usage{Usage: 0x43},
++							hid.ReportCount{Count: 48},
++							hid.Feature{Flags: hid.MainData | hid.MainVar | hid.MainAbs},
++							hid.AnyItem{Type: hid.ItemTypeGlobal, Tag: 0x08, Data: hid.Data{0xA4}},
++							hid.Usage{Usage: 0x44},
++							hid.ReportCount{Count: 13},
++							hid.Feature{Flags: hid.MainData | hid.MainVar | hid.MainAbs},
++							hid.AnyItem{Type: hid.ItemTypeGlobal, Tag: 0x08, Data: hid.Data{0xA5}},
++							hid.Usage{Usage: 0x45},
++							hid.ReportCount{Count: 21},
++							hid.Feature{Flags: hid.MainData | hid.MainVar | hid.MainAbs},
++							hid.AnyItem{Type: hid.ItemTypeGlobal, Tag: 0x08, Data: hid.Data{0xA6}},
++							hid.Usage{Usage: 0x46},
++							hid.ReportCount{Count: 21},
++							hid.Feature{Flags: hid.MainData | hid.MainVar | hid.MainAbs},
++							hid.AnyItem{Type: hid.ItemTypeGlobal, Tag: 0x08, Data: hid.Data{0xF0}},
++							hid.Usage{Usage: 0x47},
++							hid.ReportCount{Count: 63},
++							hid.Feature{Flags: hid.MainData | hid.MainVar | hid.MainAbs},
++							hid.AnyItem{Type: hid.ItemTypeGlobal, Tag: 0x08, Data: hid.Data{0xF1}},
++							hid.Usage{Usage: 0x48},
++							hid.ReportCount{Count: 63},
++							hid.Feature{Flags: hid.MainData | hid.MainVar | hid.MainAbs},
++							hid.AnyItem{Type: hid.ItemTypeGlobal, Tag: 0x08, Data: hid.Data{0xF2}},
++							hid.Usage{Usage: 0x49},
++							hid.ReportCount{Count: 15},
++							hid.Feature{Flags: hid.MainData | hid.MainVar | hid.MainAbs},
++							hid.AnyItem{Type: hid.ItemTypeGlobal, Tag: 0x08, Data: hid.Data{0xA7}},
++							hid.Usage{Usage: 0x4A},
++							hid.ReportCount{Count: 1},
++							hid.Feature{Flags: hid.MainData | hid.MainVar | hid.MainAbs},
++							hid.AnyItem{Type: hid.ItemTypeGlobal, Tag: 0x08, Data: hid.Data{0xA8}},
++							hid.Usage{Usage: 0x4B},
++							hid.ReportCount{Count: 1},
++							hid.Feature{Flags: hid.MainData | hid.MainVar | hid.MainAbs},
++							hid.AnyItem{Type: hid.ItemTypeGlobal, Tag: 0x08, Data: hid.Data{0xA9}},
++							hid.Usage{Usage: 0x4C},
++							hid.ReportCount{Count: 8},
++							hid.Feature{Flags: hid.MainData | hid.MainVar | hid.MainAbs},
++							hid.AnyItem{Type: hid.ItemTypeGlobal, Tag: 0x08, Data: hid.Data{0xAA}},
++							hid.Usage{Usage: 0x4E},
++							hid.ReportCount{Count: 1},
++							hid.Feature{Flags: hid.MainData | hid.MainVar | hid.MainAbs},
++							hid.AnyItem{Type: hid.ItemTypeGlobal, Tag: 0x08, Data: hid.Data{0xAB}},
++							hid.Usage{Usage: 0x4F},
++							hid.ReportCount{Count: 57},
++							hid.Feature{Flags: hid.MainData | hid.MainVar | hid.MainAbs},
++							hid.AnyItem{Type: hid.ItemTypeGlobal, Tag: 0x08, Data: hid.Data{0xAC}},
++							hid.Usage{Usage: 0x50},
++							hid.ReportCount{Count: 57},
++							hid.Feature{Flags: hid.MainData | hid.MainVar | hid.MainAbs},
++							hid.AnyItem{Type: hid.ItemTypeGlobal, Tag: 0x08, Data: hid.Data{0xAD}},
++							hid.Usage{Usage: 0x51},
++							hid.ReportCount{Count: 11},
++							hid.Feature{Flags: hid.MainData | hid.MainVar | hid.MainAbs},
++							hid.AnyItem{Type: hid.ItemTypeGlobal, Tag: 0x08, Data: hid.Data{0xAE}},
++							hid.Usage{Usage: 0x52},
++							hid.ReportCount{Count: 1},
++							hid.Feature{Flags: hid.MainData | hid.MainVar | hid.MainAbs},
++							hid.AnyItem{Type: hid.ItemTypeGlobal, Tag: 0x08, Data: hid.Data{0xAF}},
++							hid.Usage{Usage: 0x53},
++							hid.ReportCount{Count: 2},
++							hid.Feature{Flags: hid.MainData | hid.MainVar | hid.MainAbs},
++							hid.AnyItem{Type: hid.ItemTypeGlobal, Tag: 0x08, Data: hid.Data{0xB0}},
++							hid.Usage{Usage: 0x54},
++							hid.ReportCount{Count: 63},
++							hid.Feature{Flags: hid.MainData | hid.MainVar | hid.MainAbs},
+ 						}},
+ 					},
+ 				},
+@@ -398,7 +655,7 @@ var defaultDescriptor = usb.Descriptor{
+ 	},
+ 	Strings: map[uint8]string{
+ 		0: "\u0409", // LangID: en-US (0x0409)
+-		1: "Sony Interactive Entertainment",
++		1: "Sony Computer Entertainment",
+ 		2: "Wireless Controller",
+ 	},
+ }

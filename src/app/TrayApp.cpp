@@ -299,7 +299,7 @@ static const wchar_t* VirtualControllerErrorInfo(VirtualControllerError error) {
     case VirtualControllerError::ViiperExeMissing:
         return L"Place viiper.exe next to SteamlessController.exe and try again.";
     case VirtualControllerError::ViiperUnsupported:
-        return L"VIIPER v0.6.1 or newer is required. Click here to open releases.";
+        return L"Use the bundled patched VIIPER sidecar; DualShock 4 mode rejects stock v0.6.1.";
     case VirtualControllerError::UsbIpDriverMissing:
         return L"Install usbip-win2; VIIPER needs it to attach virtual USB devices on Windows.";
     case VirtualControllerError::DeviceCreateFailed:

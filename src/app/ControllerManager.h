@@ -63,6 +63,7 @@ private:
     void StopReadLoop();
     void ReadLoop();
     void UpdateTrackpadHaptics(const SteamControllerState& state);
+    void MaintainDualShock4Imu(const SteamControllerState& state);
     void ApplyTrackpadRuntimeSettings();
     bool IsTrackpadDpadActive() const;
     bool ShouldTrackpadDpadLockMouse() const;
@@ -90,6 +91,10 @@ private:
     int16_t                            m_prevHapticRightY     = 0;
     std::chrono::steady_clock::time_point m_lastHapticLeftPulse{};
     std::chrono::steady_clock::time_point m_lastHapticRightPulse{};
+    bool                               m_hasLastImuTimestamp = false;
+    uint32_t                           m_lastImuTimestamp = 0;
+    std::chrono::steady_clock::time_point m_lastImuProgress{};
+    std::chrono::steady_clock::time_point m_lastImuReassert{};
     bool                               m_hideOriginalController = true;
     bool                               m_originalHidden       = false;
     VirtualControllerMode              m_outputMode           = VirtualControllerMode::Xbox360;

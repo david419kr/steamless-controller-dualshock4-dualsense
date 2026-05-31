@@ -198,6 +198,7 @@ private:
     };
 
     void HeartbeatLoop();
+    bool SendSettingsPayload(const uint8_t* payload, uint8_t payloadSize);
     RumbleFrame CurrentRumbleFrameLocked(std::chrono::steady_clock::time_point now) const;
     bool SendRumbleOutput(uint16_t leftSpeed, uint16_t rightSpeed);
     bool SendTrackpadPulseOutput(uint8_t side, uint16_t onUs, uint16_t offUs, uint16_t repeatCount, int16_t gainDb);
@@ -206,6 +207,7 @@ private:
     HidDevice       m_device;
     std::thread     m_heartbeat;
     std::atomic<bool> m_running{false};
+    std::atomic<bool> m_desiredImuEnabled{false};
     std::mutex      m_writeMutex;
     std::mutex      m_rumbleMutex;
     uint16_t        m_rumbleBaseLeft = 0;

@@ -142,32 +142,17 @@ bool SteamController::DisableLizardMode() {
         }
     }
 
-    // Keep raw IMU disabled until the selected virtual output mode needs it.
-    const uint8_t imuPayload[] = {
-        SETTING_IMU_MODE, 0x00, 0x00,
-    };
-    BuildCmd(buf, CMD_SET_SETTINGS, imuPayload, sizeof(imuPayload));
-    {
-        std::lock_guard<std::mutex> lock(m_writeMutex);
-        if (!m_device.SendFeatureReport(buf, sizeof(buf))) {
-            printf("Failed to disable IMU mode.\n");
-            return false;
-        }
-    }
-
-    // Step 2: SET_SETTINGS — set both trackpads to TRACKPAD_NONE.
-    // Payload: pairs of [setting_id, val_lo, val_hi].
+    // Step 2: SET_SETTINGS — keep raw IMU off until DS4 mode asks for it and
+    // set both trackpads to TRACKPAD_NONE.
     const uint8_t settingsPayload[] = {
+        SETTING_IMU_MODE,             0x00, 0x00,
         SETTING_LEFT_TRACKPAD_MODE,  0x00, 0x00,
         SETTING_RIGHT_TRACKPAD_MODE, 0x00, 0x00,
     };
-    BuildCmd(buf, CMD_SET_SETTINGS, settingsPayload, sizeof(settingsPayload));
-    {
-        std::lock_guard<std::mutex> lock(m_writeMutex);
-        if (!m_device.SendFeatureReport(buf, sizeof(buf))) {
-            printf("Failed to send SET_SETTINGS_VALUES.\n");
-            return false;
-        }
+    m_desiredImuEnabled.store(false, std::memory_order_relaxed);
+    if (!SendSettingsPayload(settingsPayload, sizeof(settingsPayload))) {
+        printf("Failed to send SET_SETTINGS_VALUES.\n");
+        return false;
     }
 
     if (!m_running.exchange(true))
@@ -266,15 +251,20 @@ bool SteamController::SetImuEnabled(bool enabled) {
         static_cast<uint8_t>((value >> 8) & 0xFF),
     };
 
-    uint8_t buf[64];
-    BuildCmd(buf, CMD_SET_SETTINGS, payload, sizeof(payload));
-
-    std::lock_guard<std::mutex> lock(m_writeMutex);
-    if (!m_device.SendFeatureReport(buf, sizeof(buf))) {
+    if (!SendSettingsPayload(payload, sizeof(payload))) {
         printf("Failed to %s IMU mode.\n", enabled ? "enable" : "disable");
         return false;
     }
+    m_desiredImuEnabled.store(enabled, std::memory_order_relaxed);
     return true;
+}
+
+bool SteamController::SendSettingsPayload(const uint8_t* payload, uint8_t payloadSize) {
+    uint8_t buf[64];
+    BuildCmd(buf, CMD_SET_SETTINGS, payload, payloadSize);
+
+    std::lock_guard<std::mutex> lock(m_writeMutex);
+    return m_device.SendFeatureReport(buf, sizeof(buf));
 }
 
 void SteamController::SetRumble(uint8_t largeMotor, uint8_t smallMotor) {
@@ -449,13 +439,27 @@ bool SteamController::SendTrackpadCommandOutput(uint8_t side, uint8_t command, i
 // ---------------------------------------------------------------------------
 
 void SteamController::HeartbeatLoop() {
-    uint8_t buf[64];
-    BuildCmd(buf, CMD_CLEAR_DIGITAL_MAPPINGS);
+    uint8_t clearMappings[64];
+    BuildCmd(clearMappings, CMD_CLEAR_DIGITAL_MAPPINGS);
 
     while (m_running.load()) {
+        const uint16_t imuMode = m_desiredImuEnabled.load(std::memory_order_relaxed)
+            ? IMU_MODE_RAW_ACCEL_GYRO
+            : IMU_MODE_OFF;
+        const uint8_t settingsPayload[] = {
+            SETTING_IMU_MODE,
+            static_cast<uint8_t>(imuMode & 0xFF),
+            static_cast<uint8_t>((imuMode >> 8) & 0xFF),
+            SETTING_LEFT_TRACKPAD_MODE,  0x00, 0x00,
+            SETTING_RIGHT_TRACKPAD_MODE, 0x00, 0x00,
+        };
+        uint8_t settings[64];
+        BuildCmd(settings, CMD_SET_SETTINGS, settingsPayload, sizeof(settingsPayload));
+
         {
             std::lock_guard<std::mutex> lock(m_writeMutex);
-            m_device.SendFeatureReport(buf, sizeof(buf));
+            m_device.SendFeatureReport(clearMappings, sizeof(clearMappings));
+            m_device.SendFeatureReport(settings, sizeof(settings));
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(800));
     }

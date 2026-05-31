@@ -323,6 +323,26 @@ bool IsViiperVersionSupported(const std::string& version) {
     return patch >= 1;
 }
 
+bool IsViiperDualShock4CompatibleVersion(const std::string& version) {
+    int major = 0;
+    int minor = 0;
+    int patch = 0;
+    if (!ParseVersionParts(version, major, minor, patch))
+        return false;
+
+    if (major != 0)
+        return major > 0;
+    if (minor != 6)
+        return minor > 6;
+    if (patch != 1)
+        return patch > 1;
+
+    std::string lower = version;
+    std::transform(lower.begin(), lower.end(), lower.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return lower.find("steamless3") != std::string::npos;
+}
+
 ViiperClient::~ViiperClient() {
     Close();
 }
@@ -333,7 +353,7 @@ bool ViiperClient::Open(VirtualControllerMode mode, FeedbackFn feedbackFn) {
     m_errorMessage.clear();
     m_feedbackFn = std::move(feedbackFn);
 
-    if (!EnsureServerReady())
+    if (!EnsureServerReady(mode))
         return false;
     if (!CreateBus())
         return false;
@@ -384,9 +404,9 @@ bool ViiperClient::SendInput(const uint8_t* data, size_t size) {
     return true;
 }
 
-bool ViiperClient::EnsureServerReady() {
+bool ViiperClient::EnsureServerReady(VirtualControllerMode mode) {
     std::string version;
-    if (PingServer(&version))
+    if (PingServer(mode, &version))
         return true;
     if (m_error == VirtualControllerError::ViiperUnsupported)
         return false;
@@ -403,7 +423,7 @@ bool ViiperClient::EnsureServerReady() {
 
     for (int i = 0; i < 20; ++i) {
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
-        if (PingServer(&version))
+        if (PingServer(mode, &version))
             return true;
         if (m_error == VirtualControllerError::ViiperUnsupported)
             return false;
@@ -413,7 +433,7 @@ bool ViiperClient::EnsureServerReady() {
     return false;
 }
 
-bool ViiperClient::PingServer(std::string* version) {
+bool ViiperClient::PingServer(VirtualControllerMode mode, std::string* version) {
     std::string response;
     if (!Request("ping", {}, response)) {
         SetError(VirtualControllerError::ViiperUnavailable, nullptr);
@@ -431,6 +451,11 @@ bool ViiperClient::PingServer(std::string* version) {
         return false;
     }
     if (!IsViiperVersionSupported(ver)) {
+        SetError(VirtualControllerError::ViiperUnsupported, nullptr);
+        return false;
+    }
+    if (mode == VirtualControllerMode::DualShock4 &&
+        !IsViiperDualShock4CompatibleVersion(ver)) {
         SetError(VirtualControllerError::ViiperUnsupported, nullptr);
         return false;
     }
@@ -453,7 +478,8 @@ bool ViiperClient::SpawnBundledServer() {
         return false;
     }
 
-    std::wstring command = L"\"" + viiperPath + L"\" server --log.file=viiper.log";
+    std::wstring command =
+        L"\"" + viiperPath + L"\" server --log.file=viiper.log --update-notify none";
     std::vector<wchar_t> commandLine(command.begin(), command.end());
     commandLine.push_back(L'\0');
 

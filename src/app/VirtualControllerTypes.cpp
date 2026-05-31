@@ -468,10 +468,10 @@ ViiperDualShock4InputState BuildViiperDualShock4Input(
     const uint8_t b2 = ButtonByte(state, 2);
     const uint8_t b3 = ButtonByte(state, 3);
 
-    const bool rawRightTouching = (b2 & SteamController::BTN_TP_RT) != 0;
-    const bool rawLeftTouching = (b3 & SteamController::BTN_TP_LT) != 0;
     const bool rawRightClick = (b2 & SteamController::BTN_TP_RT_CLICK) != 0;
     const bool rawLeftClick = (b3 & SteamController::BTN_TP_LT_CLICK) != 0;
+    const bool rawRightTouching = ((b2 & SteamController::BTN_TP_RT) != 0) || rawRightClick;
+    const bool rawLeftTouching = ((b3 & SteamController::BTN_TP_LT) != 0) || rawLeftClick;
 
     DpadDirection dpad = PhysicalDpadDirection(state);
     if (settings.trackpadDpadEnabled) {
@@ -490,7 +490,8 @@ ViiperDualShock4InputState BuildViiperDualShock4Input(
     if (b2 & SteamController::BTN_LB) out.buttons |= DS4_BUTTON_L1;
     if (b1 & SteamController::BTN_RB) out.buttons |= DS4_BUTTON_R1;
     if (b1 & SteamController::BTN_VIEW) out.buttons |= DS4_BUTTON_SHARE;
-    if (b0 & SteamController::BTN_MENU) out.buttons |= DS4_BUTTON_OPTIONS;
+    if ((b0 & SteamController::BTN_MENU) && !rawRightClick && !rawLeftClick)
+        out.buttons |= DS4_BUTTON_OPTIONS;
     if (b1 & SteamController::BTN_LS) out.buttons |= DS4_BUTTON_L3;
     if (b0 & SteamController::BTN_RS) out.buttons |= DS4_BUTTON_R3;
     if (out.leftTrigger > 0) out.buttons |= DS4_BUTTON_L2;

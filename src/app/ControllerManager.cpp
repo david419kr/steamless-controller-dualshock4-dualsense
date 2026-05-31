@@ -99,6 +99,9 @@ void ControllerManager::EnableGameMode() {
 
     m_gameModeActive = true;
     m_trackpad.Reset();
+    m_hasLastImuTimestamp = false;
+    m_lastImuProgress = std::chrono::steady_clock::now();
+    m_lastImuReassert = m_lastImuProgress;
     ApplyTrackpadRuntimeSettings();
     StartReadLoop();
     m_onStateChanged(m_connected, m_gameModeActive, VirtualControllerError::None);
@@ -110,6 +113,7 @@ void ControllerManager::DisableGameMode() {
     m_trackpad.Reset();
     if (g_ctrl)
         g_ctrl->ClearTrackpadHaptics();
+    m_hasLastImuTimestamp = false;
     m_virtual.reset();
     g_ctrl->SetImuEnabled(false);
     g_ctrl->EnableLizardMode();
@@ -385,6 +389,31 @@ void ControllerManager::UpdateTrackpadHaptics(const SteamControllerState& state)
                       m_lastHapticRightPulse, rightStrongPulse);
 }
 
+void ControllerManager::MaintainDualShock4Imu(const SteamControllerState& state) {
+    if (!g_ctrl || !m_gameModeActive || m_outputMode != VirtualControllerMode::DualShock4)
+        return;
+
+    const auto now = std::chrono::steady_clock::now();
+    bool shouldReassert = false;
+
+    if (!state.hasImu) {
+        shouldReassert = true;
+    } else if (!m_hasLastImuTimestamp || state.imuTimestamp != m_lastImuTimestamp) {
+        m_hasLastImuTimestamp = true;
+        m_lastImuTimestamp = state.imuTimestamp;
+        m_lastImuProgress = now;
+        return;
+    } else if (now - m_lastImuProgress >= std::chrono::milliseconds(900)) {
+        shouldReassert = true;
+    }
+
+    if (!shouldReassert || now - m_lastImuReassert < std::chrono::milliseconds(1000))
+        return;
+
+    if (g_ctrl->SetImuEnabled(true))
+        m_lastImuReassert = now;
+}
+
 void ControllerManager::TryOpen(uint32_t activeReportTimeoutMs) {
     if (!g_ctrl) g_ctrl = std::make_unique<SteamController>();
     if (g_ctrl->Open(activeReportTimeoutMs)) {
@@ -436,6 +465,7 @@ void ControllerManager::ReadLoop() {
         if (!SteamController::IsStateReportId(buf[0])) continue;
         SteamControllerState state;
         if (!SteamController::ParseStateReport(buf, n, state)) continue;
+        MaintainDualShock4Imu(state);
         if (m_virtual) m_virtual->Update(state);
         UpdateTrackpadHaptics(state);
         m_trackpad.Update(buf, n);

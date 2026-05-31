@@ -56,7 +56,19 @@ void TestViiperRequestHelpers() {
            "VIIPER ping JSON parse");
     Expect(server == "VIIPER" && version == "v0.6.1", "VIIPER ping fields");
     Expect(IsViiperVersionSupported("v0.6.1"), "VIIPER v0.6.1 supported");
+    Expect(IsViiperVersionSupported("0.6.1-steamless1"),
+           "VIIPER patched v0.6.1 supported");
     Expect(!IsViiperVersionSupported("v0.6.0"), "VIIPER v0.6.0 unsupported");
+    Expect(!IsViiperDualShock4CompatibleVersion("v0.6.1"),
+           "Stock VIIPER v0.6.1 is not DS4-compatible");
+    Expect(!IsViiperDualShock4CompatibleVersion("0.6.1-steamless1"),
+           "Old Steamless-patched VIIPER v0.6.1 is not DS4-compatible");
+    Expect(!IsViiperDualShock4CompatibleVersion("0.6.1-steamless2"),
+           "Old Steamless-patched VIIPER v0.6.1 steamless2 is not DS4-compatible");
+    Expect(IsViiperDualShock4CompatibleVersion("0.6.1-steamless3"),
+           "Steamless-patched VIIPER v0.6.1 steamless3 is DS4-compatible");
+    Expect(IsViiperDualShock4CompatibleVersion("v0.6.2"),
+           "Future VIIPER versions are treated as DS4-compatible");
 
     uint32_t busId = 0;
     std::string devId;
@@ -193,6 +205,23 @@ void TestDualShock4TouchSuppressionAndBackButtons() {
     Expect(!input.touch2Active, "DS4 left trackpad suppressed when used as D-pad");
     Expect((input.buttons & 0x0002) == 0,
            "DS4 suppressed left trackpad click is not touchpad click");
+
+    SteamControllerState clickOnly{};
+    SetButtons(clickOnly,
+               SteamController::BTN_MENU,
+               0,
+               SteamController::BTN_TP_RT_CLICK,
+               0);
+    clickOnly.rightPadX = 12000;
+    clickOnly.rightPadY = -8000;
+    VirtualControllerRuntimeSettings noSuppression{};
+    const ViiperDualShock4InputState clickInput =
+        BuildViiperDualShock4Input(clickOnly, noSuppression);
+    Expect(clickInput.touch1Active,
+           "DS4 touchpad click forces touch slot active even if touch bit is absent");
+    Expect((clickInput.buttons & 0x0002) != 0, "DS4 touchpad click button set");
+    Expect((clickInput.buttons & 0x2000) == 0,
+           "DS4 OPTIONS is suppressed during a trackpad click");
 
     SetButtons(state, 0, SteamController::BTN_R5, 0, 0);
     const ViiperDualShock4InputState mapped = BuildViiperDualShock4Input(state, settings);
