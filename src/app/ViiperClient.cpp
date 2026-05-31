@@ -175,7 +175,71 @@ std::wstring QuoteCommandLineArg(const std::wstring& arg) {
     return quoted;
 }
 
-std::wstring BuildWritableViiperLogPath() {
+bool DirectoryExists(const std::wstring& path) {
+    const DWORD attr = GetFileAttributesW(path.c_str());
+    return attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_DIRECTORY) != 0;
+}
+
+std::wstring GetKnownDesktopDirectory() {
+    using SHGetKnownFolderPathFn = HRESULT(WINAPI*)(const GUID&, DWORD, HANDLE, PWSTR*);
+    using CoTaskMemFreeFn = void(WINAPI*)(LPVOID);
+
+    HMODULE shell32 = GetModuleHandleW(L"shell32.dll");
+    if (!shell32)
+        shell32 = LoadLibraryW(L"shell32.dll");
+    HMODULE ole32 = GetModuleHandleW(L"ole32.dll");
+    if (!ole32)
+        ole32 = LoadLibraryW(L"ole32.dll");
+    if (!shell32 || !ole32)
+        return {};
+
+    const auto shGetKnownFolderPath =
+        reinterpret_cast<SHGetKnownFolderPathFn>(GetProcAddress(shell32, "SHGetKnownFolderPath"));
+    const auto coTaskMemFree =
+        reinterpret_cast<CoTaskMemFreeFn>(GetProcAddress(ole32, "CoTaskMemFree"));
+    if (!shGetKnownFolderPath || !coTaskMemFree)
+        return {};
+
+    const GUID desktopFolderId =
+        {0xB4BFCC3A, 0xDB2C, 0x424C, {0xB0, 0x29, 0x7F, 0xE9, 0x9A, 0x87, 0xC6, 0x41}};
+    PWSTR path = nullptr;
+    const HRESULT hr = shGetKnownFolderPath(desktopFolderId, 0, nullptr, &path);
+    if (FAILED(hr) || !path)
+        return {};
+
+    std::wstring result(path);
+    coTaskMemFree(path);
+    return result;
+}
+
+std::wstring BuildDesktopLogPath(const wchar_t* fileName) {
+    const std::wstring knownDesktop = GetKnownDesktopDirectory();
+    if (!knownDesktop.empty() && DirectoryExists(knownDesktop))
+        return knownDesktop + L"\\" + fileName;
+
+    std::wstring desktop;
+    const std::wstring userProfile = GetEnvironmentValue(L"USERPROFILE");
+    if (!userProfile.empty()) {
+        desktop = userProfile + L"\\Desktop";
+        if (DirectoryExists(desktop))
+            return desktop + L"\\" + fileName;
+    }
+
+    const std::wstring oneDrive = GetEnvironmentValue(L"OneDrive");
+    if (!oneDrive.empty()) {
+        desktop = oneDrive + L"\\Desktop";
+        if (DirectoryExists(desktop))
+            return desktop + L"\\" + fileName;
+    }
+
+    return {};
+}
+
+std::wstring BuildWritableViiperLogPath(const wchar_t* fileName) {
+    const std::wstring desktopLog = BuildDesktopLogPath(fileName);
+    if (!desktopLog.empty())
+        return desktopLog;
+
     std::wstring base = GetEnvironmentValue(L"LOCALAPPDATA");
     if (base.empty()) {
         std::vector<wchar_t> tempPath(MAX_PATH);
@@ -195,7 +259,7 @@ std::wstring BuildWritableViiperLogPath() {
         if (err != ERROR_ALREADY_EXISTS)
             return {};
     }
-    return logDir + L"\\viiper.log";
+    return logDir + L"\\" + fileName;
 }
 
 std::wstring ErrorMessageFor(VirtualControllerError error) {
@@ -397,7 +461,8 @@ bool IsViiperDualShock4CompatibleVersion(const std::string& version) {
     std::transform(lower.begin(), lower.end(), lower.begin(),
                    [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     return lower.find("steamless3") != std::string::npos ||
-           lower.find("steamless4") != std::string::npos;
+           lower.find("steamless4") != std::string::npos ||
+           lower.find("steamless5") != std::string::npos;
 }
 
 bool IsViiperDualSenseCompatibleVersion(const std::string& version) {
@@ -417,7 +482,7 @@ bool IsViiperDualSenseCompatibleVersion(const std::string& version) {
     std::string lower = version;
     std::transform(lower.begin(), lower.end(), lower.begin(),
                    [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    return lower.find("steamless4") != std::string::npos;
+    return lower.find("steamless5") != std::string::npos;
 }
 
 ViiperClient::~ViiperClient() {
@@ -561,9 +626,12 @@ bool ViiperClient::SpawnBundledServer() {
     }
 
     std::wstring command = QuoteCommandLineArg(viiperPath) + L" server --update-notify none";
-    const std::wstring logPath = BuildWritableViiperLogPath();
+    const std::wstring logPath = BuildWritableViiperLogPath(L"SteamlessController-viiper.log");
     if (!logPath.empty())
         command += L" " + QuoteCommandLineArg(L"--log.file=" + logPath);
+    const std::wstring rawLogPath = BuildWritableViiperLogPath(L"SteamlessController-viiper-raw.log");
+    if (!rawLogPath.empty())
+        command += L" " + QuoteCommandLineArg(L"--log.raw-file=" + rawLogPath);
     std::vector<wchar_t> commandLine(command.begin(), command.end());
     commandLine.push_back(L'\0');
 
@@ -697,12 +765,41 @@ void ViiperClient::FeedbackLoop(VirtualControllerMode mode, std::uintptr_t strea
     size_t feedbackSize = 2u;
     if (mode == VirtualControllerMode::DualShock4)
         feedbackSize = 7u;
-    else if (mode == VirtualControllerMode::DualSense)
-        feedbackSize = 27u;
-    std::array<uint8_t, 32> buffer{};
+    std::array<uint8_t, 64> buffer{};
     const SOCKET socket = ToSocket(streamSocket);
 
     while (m_feedbackRunning.load(std::memory_order_relaxed)) {
+        if (mode == VirtualControllerMode::DualSense) {
+            std::array<uint8_t, 3> header{};
+            if (!ReceiveExact(socket, header.data(), header.size()))
+                break;
+
+            const uint8_t frameType = header[0];
+            const uint16_t payloadSize = static_cast<uint16_t>(header[1]) |
+                                         (static_cast<uint16_t>(header[2]) << 8);
+            if (payloadSize == 0 || payloadSize > buffer.size())
+                break;
+            if (!ReceiveExact(socket, buffer.data(), payloadSize))
+                break;
+
+            ViiperFeedbackState feedback{};
+            feedback.mode = mode;
+            bool ok = false;
+            if (frameType == 0x01) {
+                ok = DecodeViiperDualSenseFeedback(buffer.data(), payloadSize,
+                                                   feedback.dualSense);
+                feedback.largeMotor = feedback.dualSense.LargeMotor();
+                feedback.smallMotor = feedback.dualSense.SmallMotor();
+            } else if (frameType == 0x02) {
+                ok = DecodeViiperDualSenseAudioHaptics(buffer.data(), payloadSize,
+                                                       feedback.dualSenseAudio);
+                feedback.isDualSenseAudio = true;
+            }
+            if (ok && m_feedbackFn)
+                m_feedbackFn(feedback);
+            continue;
+        }
+
         if (!ReceiveExact(socket, buffer.data(), feedbackSize))
             break;
 
@@ -713,11 +810,6 @@ void ViiperClient::FeedbackLoop(VirtualControllerMode mode, std::uintptr_t strea
             ok = DecodeViiperDualShock4Feedback(buffer.data(), feedbackSize,
                                                 feedback.largeMotor,
                                                 feedback.smallMotor);
-        } else if (mode == VirtualControllerMode::DualSense) {
-            ok = DecodeViiperDualSenseFeedback(buffer.data(), feedbackSize,
-                                               feedback.dualSense);
-            feedback.largeMotor = feedback.dualSense.LargeMotor();
-            feedback.smallMotor = feedback.dualSense.SmallMotor();
         } else {
             ok = DecodeViiperXbox360Feedback(buffer.data(), feedbackSize,
                                              feedback.largeMotor,

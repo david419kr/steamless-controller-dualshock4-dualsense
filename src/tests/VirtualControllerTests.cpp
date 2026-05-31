@@ -69,14 +69,18 @@ void TestViiperRequestHelpers() {
            "Steamless-patched VIIPER v0.6.1 steamless3 is DS4-compatible");
     Expect(IsViiperDualShock4CompatibleVersion("0.6.1-steamless4"),
            "Steamless-patched VIIPER v0.6.1 steamless4 remains DS4-compatible");
+    Expect(IsViiperDualShock4CompatibleVersion("0.6.1-steamless5"),
+           "Steamless-patched VIIPER v0.6.1 steamless5 remains DS4-compatible");
     Expect(IsViiperDualShock4CompatibleVersion("v0.6.2"),
            "Future VIIPER versions are treated as DS4-compatible");
     Expect(!IsViiperDualSenseCompatibleVersion("v0.6.1"),
            "Stock VIIPER v0.6.1 is not DualSense-compatible");
     Expect(!IsViiperDualSenseCompatibleVersion("0.6.1-steamless3"),
            "Steamless3 VIIPER v0.6.1 is not DualSense-compatible");
-    Expect(IsViiperDualSenseCompatibleVersion("0.6.1-steamless4"),
-           "Steamless4 VIIPER v0.6.1 is DualSense-compatible");
+    Expect(!IsViiperDualSenseCompatibleVersion("0.6.1-steamless4"),
+           "Steamless4 VIIPER v0.6.1 lacks DualSense audio haptics");
+    Expect(IsViiperDualSenseCompatibleVersion("0.6.1-steamless5"),
+           "Steamless5 VIIPER v0.6.1 is DualSense-compatible");
     Expect(IsViiperDualSenseCompatibleVersion("v0.6.2"),
            "Future VIIPER versions are treated as DualSense-compatible");
 
@@ -385,6 +389,31 @@ void TestFeedbackDecoding() {
     ExpectEq(dualSense.rightTriggerEffect[0], 0x02, "DualSense right trigger effect");
     ExpectEq(dualSense.leftTriggerEffect[0], 0x03, "DualSense left trigger effect");
     ExpectEq(dualSense.leftTriggerEffect[10], 0x7F, "DualSense left trigger effect tail");
+
+    uint8_t ds5Audio[16] = {};
+    ds5Audio[0] = 0x2A;
+    ds5Audio[4] = 0x34;
+    ds5Audio[5] = 0x12;
+    ds5Audio[6] = 0x78;
+    ds5Audio[7] = 0x56;
+    ds5Audio[8] = 0xAB;
+    ds5Audio[9] = 0x89;
+    ds5Audio[10] = 0xEF;
+    ds5Audio[11] = 0xCD;
+    ds5Audio[12] = 0x11;
+    ds5Audio[13] = 0x22;
+    ds5Audio[14] = 0x33;
+    ds5Audio[15] = 0x44;
+    ViiperDualSenseAudioHapticsState audio{};
+    Expect(DecodeViiperDualSenseAudioHaptics(ds5Audio, sizeof(ds5Audio), audio),
+           "DualSense audio haptics decode");
+    ExpectEq(audio.sequence, 0x2A, "DualSense audio sequence");
+    ExpectEq(audio.leftEnergy, 0x1234, "DualSense audio left energy");
+    ExpectEq(audio.rightEnergy, 0x5678, "DualSense audio right energy");
+    ExpectEq(audio.leftPeak, 0x89AB, "DualSense audio left peak");
+    ExpectEq(audio.rightPeak, 0xCDEF, "DualSense audio right peak");
+    ExpectEq(audio.leftTransient, 0x2211, "DualSense audio left transient");
+    ExpectEq(audio.rightTransient, 0x4433, "DualSense audio right transient");
 }
 
 } // namespace

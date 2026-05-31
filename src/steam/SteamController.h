@@ -52,6 +52,16 @@ struct SteamControllerDualSenseHaptics {
     std::array<uint8_t, 11> leftTriggerEffect{};
 };
 
+struct SteamControllerDualSenseAudioHaptics {
+    uint32_t sequence = 0;
+    uint16_t leftEnergy = 0;
+    uint16_t rightEnergy = 0;
+    uint16_t leftPeak = 0;
+    uint16_t rightPeak = 0;
+    uint16_t leftTransient = 0;
+    uint16_t rightTransient = 0;
+};
+
 class SteamController {
 public:
     static constexpr uint16_t VALVE_VID        = 0x28DE;
@@ -202,6 +212,7 @@ public:
     void SetDualSenseHaptics(const SteamControllerDualSenseHaptics& haptics,
                              uint8_t leftTriggerPosition,
                              uint8_t rightTriggerPosition);
+    void SetDualSenseAudioHaptics(const SteamControllerDualSenseAudioHaptics& haptics);
     void PulseTrackpadHaptic(bool left, bool strongClick);
     void ClearTrackpadHaptics();
     void MaintainRumble();
@@ -251,4 +262,9 @@ private:
     bool            m_hasDualSenseRumbleState = false;
     DualSenseTriggerRuntime m_dualSenseLeftTrigger;
     DualSenseTriggerRuntime m_dualSenseRightTrigger;
+    uint16_t        m_dualSenseAudioLeft = 0;
+    uint16_t        m_dualSenseAudioRight = 0;
+    std::chrono::steady_clock::time_point m_lastDualSenseAudioAt{};
+    std::chrono::steady_clock::time_point m_lastDualSenseAudioLeftPulse{};
+    std::chrono::steady_clock::time_point m_lastDualSenseAudioRightPulse{};
 };

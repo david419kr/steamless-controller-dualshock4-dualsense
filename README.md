@@ -15,7 +15,7 @@ This fork turns a Steam Controller into a VIIPER-backed virtual Xbox 360, DualSh
 - Download the app from the [latest release](https://github.com/david419kr/steamless-controller-dualshock4/releases/latest), keep `viiper.exe` next to it, and run it directly.
 - To use native gyro in Steam games with DualShock 4 or DualSense support, you may need to right-click the game in Steam, open Properties, and disable Steam Input for that game.
 - DualShock 4 mode supports buttons, sticks, triggers, native gyro/accelerometer output, touchpad output, rumble, Steam Controller trackpad haptics, trackpad D-pad, and L4/L5/R4/R5 back-button mapping.
-- DualSense mode is experimental. It adds DualSense USB HID identity, native gyro/accelerometer output, touchpad output, compatible rumble, adaptive-trigger output parsing, and Steam Controller haptic synthesis for DualSense trigger effects.
+- DualSense mode is experimental. It adds DualSense USB composite HID + Audio identity, native gyro/accelerometer output, touchpad output, compatible rumble, adaptive-trigger output parsing, USB audio haptics extraction, and Steam Controller haptic synthesis for DualSense trigger/audio effects.
 - HidHide + DualShock 4 mode has been tested in Steam with native gyro controls working in **Pragmata**.
 - Native gyro input has also been tested outside Steam in **Cemu**.
 
@@ -89,7 +89,7 @@ You can also build the patched VIIPER sidecar directly:
 powershell -ExecutionPolicy Bypass -File tools\build-viiper.ps1 -OutputDir build\release\Release
 ```
 
-The script clones upstream VIIPER `v0.6.1`, applies `third_party\viiper-patches\viiper-v0.6.1-ds4-compat.patch` and `third_party\viiper-patches\viiper-v0.6.1-dualsense.patch`, builds `viiper.exe`, and marks it as `v0.6.1-steamless4`. Stock `v0.6.1` is intentionally rejected in PlayStation modes because it does not expose the reports required by native gyro/touch/trigger clients.
+The script clones upstream VIIPER `v0.6.1`, applies `third_party\viiper-patches\viiper-v0.6.1-ds4-compat.patch` and `third_party\viiper-patches\viiper-v0.6.1-dualsense.patch`, builds `viiper.exe`, and marks it as `v0.6.1-steamless5`. Stock `v0.6.1` is intentionally rejected in PlayStation modes because it does not expose the reports required by native gyro/touch/trigger/audio-haptics clients.
 
 ## Bundled Installer
 
@@ -110,7 +110,7 @@ cmake --preset release
 cmake --build --preset installer
 ```
 
-When SteamlessController starts the bundled VIIPER sidecar, VIIPER logs to `%LOCALAPPDATA%\SteamlessController\viiper.log`. This keeps installed builds from trying to write logs under `Program Files`.
+For this test branch, when SteamlessController starts the bundled VIIPER sidecar, VIIPER writes `SteamlessController-viiper.log` and `SteamlessController-viiper-raw.log` to the Desktop when possible, falling back to `%LOCALAPPDATA%\SteamlessController`. The raw log is intentionally verbose and should be disabled again before a normal release.
 
 ## CMake Targets
 

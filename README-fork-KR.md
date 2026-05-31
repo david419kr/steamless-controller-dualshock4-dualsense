@@ -13,7 +13,7 @@
 - [최신 릴리즈](https://github.com/david419kr/steamless-controller-dualshock4/releases/latest)에서 앱을 내려받고, `viiper.exe`가 같은 폴더에 있는 상태로 실행하면 됩니다.
 - DualShock 4 또는 DualSense를 지원하는 Steam 게임에서 네이티브 자이로를 사용하려면, Steam 라이브러리에서 해당 게임을 우클릭한 뒤 속성에서 Steam Input을 비활성화해야 할 수 있습니다.
 - DualShock 4 모드는 버튼, 스틱, 트리거, 네이티브 자이로/가속도, 터치패드 출력, 진동, Steam Controller 트랙패드 햅틱, 트랙패드 D-pad, L4/L5/R4/R5 백버튼 매핑을 지원합니다.
-- DualSense 모드는 실험적 기능입니다. DualSense USB HID identity, 네이티브 자이로/가속도, 터치패드 출력, compatible rumble, adaptive-trigger output 파싱, Steam Controller 햅틱 기반 트리거 효과 합성을 지원합니다.
+- DualSense 모드는 실험적 기능입니다. DualSense USB composite HID + Audio identity, 네이티브 자이로/가속도, 터치패드 출력, compatible rumble, adaptive-trigger output 파싱, USB audio haptics 추출, Steam Controller 햅틱 기반 트리거/오디오 효과 합성을 지원합니다.
 - HidHide와 DualShock 4 모드를 함께 사용하여 Steam에서 **Pragmata**의 네이티브 자이로 조작이 동작하는 것을 확인했습니다.
 - Steam 외 사용처로 **Cemu**에서도 네이티브 자이로 입력이 동작하는 것을 확인했습니다.
 
@@ -41,7 +41,7 @@ cmake --build --preset release
 powershell -ExecutionPolicy Bypass -File tools\build-viiper.ps1 -OutputDir build\release\Release
 ```
 
-이 스크립트는 upstream VIIPER `v0.6.1`을 받아 `third_party\viiper-patches\viiper-v0.6.1-ds4-compat.patch`와 `third_party\viiper-patches\viiper-v0.6.1-dualsense.patch`를 적용하고, 서버 버전을 `v0.6.1-steamless4`로 표시한 `viiper.exe`를 빌드합니다. stock `v0.6.1`은 PlayStation 모드에서 의도적으로 거부합니다. 네이티브 자이로/터치패드/트리거 클라이언트가 요구하는 feature report와 descriptor 보강이 없기 때문입니다.
+이 스크립트는 upstream VIIPER `v0.6.1`을 받아 `third_party\viiper-patches\viiper-v0.6.1-ds4-compat.patch`와 `third_party\viiper-patches\viiper-v0.6.1-dualsense.patch`를 적용하고, 서버 버전을 `v0.6.1-steamless5`로 표시한 `viiper.exe`를 빌드합니다. stock `v0.6.1`은 PlayStation 모드에서 의도적으로 거부합니다. 네이티브 자이로/터치패드/트리거/오디오 햅틱 클라이언트가 요구하는 feature report와 descriptor 보강이 없기 때문입니다.
 
 ## 단일 installer 패키징
 
@@ -62,7 +62,7 @@ cmake --preset release
 cmake --build --preset installer
 ```
 
-SteamlessController가 bundled VIIPER sidecar를 자동 실행할 때 VIIPER 로그는 `%LOCALAPPDATA%\SteamlessController\viiper.log`에 기록됩니다. 설치본에서 `Program Files` 아래에 로그를 쓰려다 실패하지 않도록 하기 위한 경로입니다.
+이 테스트 브랜치에서는 SteamlessController가 bundled VIIPER sidecar를 자동 실행할 때 `SteamlessController-viiper.log`와 `SteamlessController-viiper-raw.log`를 가능하면 바탕화면에 기록하고, 실패하면 `%LOCALAPPDATA%\SteamlessController`로 fallback합니다. raw log는 의도적으로 매우 커질 수 있으므로 일반 릴리즈 전에는 기본 비활성화해야 합니다.
 
 ## 필요한 개발 도구
 

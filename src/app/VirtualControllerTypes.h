@@ -113,11 +113,23 @@ struct ViiperDualSenseFeedbackState {
     uint8_t SmallMotor() const { return rumbleRight; }
 };
 
+struct ViiperDualSenseAudioHapticsState {
+    uint32_t sequence = 0;
+    uint16_t leftEnergy = 0;
+    uint16_t rightEnergy = 0;
+    uint16_t leftPeak = 0;
+    uint16_t rightPeak = 0;
+    uint16_t leftTransient = 0;
+    uint16_t rightTransient = 0;
+};
+
 struct ViiperFeedbackState {
     VirtualControllerMode mode = VirtualControllerMode::Xbox360;
     uint8_t largeMotor = 0;
     uint8_t smallMotor = 0;
+    bool isDualSenseAudio = false;
     ViiperDualSenseFeedbackState dualSense;
+    ViiperDualSenseAudioHapticsState dualSenseAudio;
 };
 
 ViiperXbox360InputState BuildViiperXbox360Input(
@@ -145,3 +157,7 @@ bool DecodeViiperDualShock4Feedback(const uint8_t* data,
 bool DecodeViiperDualSenseFeedback(const uint8_t* data,
                                    size_t size,
                                    ViiperDualSenseFeedbackState& feedback);
+
+bool DecodeViiperDualSenseAudioHaptics(const uint8_t* data,
+                                       size_t size,
+                                       ViiperDualSenseAudioHapticsState& feedback);

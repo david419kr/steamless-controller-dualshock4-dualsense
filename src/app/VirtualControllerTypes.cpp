@@ -793,3 +793,28 @@ bool DecodeViiperDualSenseFeedback(const uint8_t* data,
     std::copy(data + 16, data + 27, feedback.leftTriggerEffect.begin());
     return true;
 }
+
+bool DecodeViiperDualSenseAudioHaptics(const uint8_t* data,
+                                       size_t size,
+                                       ViiperDualSenseAudioHapticsState& feedback) {
+    if (!data || size < 16)
+        return false;
+
+    feedback.sequence = static_cast<uint32_t>(data[0])
+                      | (static_cast<uint32_t>(data[1]) << 8)
+                      | (static_cast<uint32_t>(data[2]) << 16)
+                      | (static_cast<uint32_t>(data[3]) << 24);
+    feedback.leftEnergy = static_cast<uint16_t>(data[4])
+                        | (static_cast<uint16_t>(data[5]) << 8);
+    feedback.rightEnergy = static_cast<uint16_t>(data[6])
+                         | (static_cast<uint16_t>(data[7]) << 8);
+    feedback.leftPeak = static_cast<uint16_t>(data[8])
+                      | (static_cast<uint16_t>(data[9]) << 8);
+    feedback.rightPeak = static_cast<uint16_t>(data[10])
+                       | (static_cast<uint16_t>(data[11]) << 8);
+    feedback.leftTransient = static_cast<uint16_t>(data[12])
+                           | (static_cast<uint16_t>(data[13]) << 8);
+    feedback.rightTransient = static_cast<uint16_t>(data[14])
+                            | (static_cast<uint16_t>(data[15]) << 8);
+    return true;
+}

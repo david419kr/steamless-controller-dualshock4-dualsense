@@ -34,6 +34,19 @@ static SteamControllerDualSenseHaptics ToSteamHaptics(const ViiperDualSenseFeedb
     return haptics;
 }
 
+static SteamControllerDualSenseAudioHaptics ToSteamAudioHaptics(
+    const ViiperDualSenseAudioHapticsState& feedback) {
+    SteamControllerDualSenseAudioHaptics haptics{};
+    haptics.sequence = feedback.sequence;
+    haptics.leftEnergy = feedback.leftEnergy;
+    haptics.rightEnergy = feedback.rightEnergy;
+    haptics.leftPeak = feedback.leftPeak;
+    haptics.rightPeak = feedback.rightPeak;
+    haptics.leftTransient = feedback.leftTransient;
+    haptics.rightTransient = feedback.rightTransient;
+    return haptics;
+}
+
 static uint8_t TrackpadDpadMask(int16_t x, int16_t y, bool active) {
     if (!active)
         return 0;
@@ -452,6 +465,10 @@ void ControllerManager::HandleVirtualFeedback(const ViiperFeedbackState& feedbac
     if (feedback.mode == VirtualControllerMode::DualShock4) {
         g_ctrl->SetDs4EnhancedRumble(feedback.largeMotor, feedback.smallMotor);
     } else if (feedback.mode == VirtualControllerMode::DualSense) {
+        if (feedback.isDualSenseAudio) {
+            g_ctrl->SetDualSenseAudioHaptics(ToSteamAudioHaptics(feedback.dualSenseAudio));
+            return;
+        }
         {
             std::lock_guard<std::mutex> lock(m_dualSenseFeedbackMutex);
             m_lastDualSenseFeedback = feedback.dualSense;

@@ -285,6 +285,8 @@ void SteamController::SetRumble(uint8_t largeMotor, uint8_t smallMotor) {
         m_rumbleBoostLeft = 0;
         m_rumbleBoostRight = 0;
         m_rumbleBoostUntil = {};
+        m_dualSenseAudioLeft = 0;
+        m_dualSenseAudioRight = 0;
         m_lastRumbleSent = now;
         frame = CurrentRumbleFrameLocked(now);
     }
@@ -318,6 +320,8 @@ void SteamController::SetDs4EnhancedRumble(uint8_t largeMotor, uint8_t smallMoto
         m_hasDs4RumbleState = true;
         m_rumbleBaseLeft = baseLeft;
         m_rumbleBaseRight = baseRight;
+        m_dualSenseAudioLeft = 0;
+        m_dualSenseAudioRight = 0;
 
         if (baseLeft == 0 && baseRight == 0) {
             m_rumbleBoostLeft = 0;
@@ -472,8 +476,94 @@ void SteamController::SetDualSenseHaptics(const SteamControllerDualSenseHaptics&
     SendRumbleOutput(frame.left, frame.right);
 }
 
+void SteamController::SetDualSenseAudioHaptics(const SteamControllerDualSenseAudioHaptics& haptics) {
+    constexpr uint16_t kAudioHapticEnergyDeadzone = 1200;
+    constexpr uint16_t kAudioHapticPeakDeadzone = 2200;
+    constexpr uint16_t kAudioHapticTransientDeadzone = 1800;
+
+    const bool leftSilent = haptics.leftEnergy < kAudioHapticEnergyDeadzone &&
+                            haptics.leftPeak < kAudioHapticPeakDeadzone &&
+                            haptics.leftTransient < kAudioHapticTransientDeadzone;
+    const bool rightSilent = haptics.rightEnergy < kAudioHapticEnergyDeadzone &&
+                             haptics.rightPeak < kAudioHapticPeakDeadzone &&
+                             haptics.rightTransient < kAudioHapticTransientDeadzone;
+    if (leftSilent && rightSilent) {
+        RumbleFrame frame{};
+        bool hadAudio = false;
+        const auto now = std::chrono::steady_clock::now();
+        {
+            std::lock_guard<std::mutex> lock(m_rumbleMutex);
+            hadAudio = m_dualSenseAudioLeft != 0 || m_dualSenseAudioRight != 0;
+            if (!hadAudio)
+                return;
+            m_dualSenseAudioLeft = 0;
+            m_dualSenseAudioRight = 0;
+            m_lastDualSenseAudioAt = now;
+            frame = CurrentRumbleFrameLocked(now);
+            m_lastRumbleSent = now;
+        }
+        SendRumbleOutput(frame.left, frame.right);
+        return;
+    }
+
+    const double leftEnergy = ClampUnit(static_cast<double>(haptics.leftEnergy) / 65535.0);
+    const double rightEnergy = ClampUnit(static_cast<double>(haptics.rightEnergy) / 65535.0);
+    const double leftPeak = ClampUnit(static_cast<double>(haptics.leftPeak) / 65535.0);
+    const double rightPeak = ClampUnit(static_cast<double>(haptics.rightPeak) / 65535.0);
+    const auto now = std::chrono::steady_clock::now();
+
+    bool pulseLeft = false;
+    bool pulseRight = false;
+    RumbleFrame frame{};
+    {
+        std::lock_guard<std::mutex> lock(m_rumbleMutex);
+
+        const double leftDemand = ClampUnit(leftEnergy * 0.95 + leftPeak * 0.20);
+        const double rightDemand = ClampUnit(rightEnergy * 0.95 + rightPeak * 0.20);
+        m_dualSenseAudioLeft = UnitToHapticSpeed(leftDemand, 0x0C00);
+        m_dualSenseAudioRight = UnitToHapticSpeed(rightDemand, 0x0C00);
+        m_lastDualSenseAudioAt = now;
+
+        const bool leftTransient =
+            haptics.leftTransient > 2600 || haptics.leftPeak > 28000;
+        const bool rightTransient =
+            haptics.rightTransient > 2600 || haptics.rightPeak > 28000;
+        if (leftTransient && now - m_lastDualSenseAudioLeftPulse >= std::chrono::milliseconds(22)) {
+            pulseLeft = true;
+            m_lastDualSenseAudioLeftPulse = now;
+        }
+        if (rightTransient && now - m_lastDualSenseAudioRightPulse >= std::chrono::milliseconds(22)) {
+            pulseRight = true;
+            m_lastDualSenseAudioRightPulse = now;
+        }
+
+        if (leftTransient || rightTransient) {
+            const uint16_t boostLeft = UnitToHapticSpeed(ClampUnit(leftDemand + 0.28), 0x2200);
+            const uint16_t boostRight = UnitToHapticSpeed(ClampUnit(rightDemand + 0.28), 0x2200);
+            if (boostLeft > m_rumbleBoostLeft)
+                m_rumbleBoostLeft = boostLeft;
+            if (boostRight > m_rumbleBoostRight)
+                m_rumbleBoostRight = boostRight;
+            m_rumbleBoostUntil = now + std::chrono::milliseconds(35);
+        }
+
+        m_lastRumbleSent = now;
+        frame = CurrentRumbleFrameLocked(now);
+    }
+
+    if (pulseLeft)
+        PulseTrackpadHaptic(true, false);
+    if (pulseRight)
+        PulseTrackpadHaptic(false, false);
+    SendRumbleOutput(frame.left, frame.right);
+}
+
 SteamController::RumbleFrame SteamController::CurrentRumbleFrameLocked(std::chrono::steady_clock::time_point now) const {
     RumbleFrame frame{m_rumbleBaseLeft, m_rumbleBaseRight};
+    if (m_dualSenseAudioLeft > frame.left)
+        frame.left = m_dualSenseAudioLeft;
+    if (m_dualSenseAudioRight > frame.right)
+        frame.right = m_dualSenseAudioRight;
     if (m_rumbleBoostUntil > now) {
         if (m_rumbleBoostLeft > frame.left)
             frame.left = m_rumbleBoostLeft;
@@ -504,6 +594,12 @@ void SteamController::MaintainRumble() {
     {
         std::lock_guard<std::mutex> lock(m_rumbleMutex);
         const auto now = std::chrono::steady_clock::now();
+
+        if ((m_dualSenseAudioLeft != 0 || m_dualSenseAudioRight != 0) &&
+            now - m_lastDualSenseAudioAt >= std::chrono::milliseconds(100)) {
+            m_dualSenseAudioLeft = 0;
+            m_dualSenseAudioRight = 0;
+        }
 
         frame = CurrentRumbleFrameLocked(now);
         if (frame.left == 0 && frame.right == 0)
