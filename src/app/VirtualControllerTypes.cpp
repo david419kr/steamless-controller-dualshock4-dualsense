@@ -2,6 +2,7 @@
 #include "steam/SteamController.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 
 namespace {
@@ -118,22 +119,19 @@ DpadDirection TrackpadDpadDirection(int16_t x, int16_t y, bool active) {
     if (ax < DEADZONE && ay < DEADZONE)
         return DpadDirection::None;
 
-    const bool east = ix > DEADZONE;
-    const bool west = ix < -DEADZONE;
-    const bool north = iy > DEADZONE;
-    const bool south = iy < -DEADZONE;
+    constexpr double RAD_TO_DEG = 180.0 / 3.14159265358979323846;
+    double degrees = std::atan2(static_cast<double>(iy), static_cast<double>(ix)) * RAD_TO_DEG;
+    if (degrees < 0.0)
+        degrees += 360.0;
 
-    if (north && east) return DpadDirection::Northeast;
-    if (east && south) return DpadDirection::Southeast;
-    if (south && west) return DpadDirection::Southwest;
-    if (west && north) return DpadDirection::Northwest;
-    if (north) return DpadDirection::North;
-    if (east) return DpadDirection::East;
-    if (south) return DpadDirection::South;
-    if (west) return DpadDirection::West;
-    return ax >= ay
-        ? (ix >= 0 ? DpadDirection::East : DpadDirection::West)
-        : (iy >= 0 ? DpadDirection::North : DpadDirection::South);
+    if (degrees < 40.0 || degrees >= 320.0) return DpadDirection::East;
+    if (degrees < 50.0) return DpadDirection::Northeast;
+    if (degrees < 130.0) return DpadDirection::North;
+    if (degrees < 140.0) return DpadDirection::Northwest;
+    if (degrees < 220.0) return DpadDirection::West;
+    if (degrees < 230.0) return DpadDirection::Southwest;
+    if (degrees < 310.0) return DpadDirection::South;
+    return DpadDirection::Southeast;
 }
 
 uint32_t X360DpadButtons(DpadDirection direction) {

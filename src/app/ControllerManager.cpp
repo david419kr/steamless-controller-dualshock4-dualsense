@@ -1,6 +1,7 @@
 #include "ControllerManager.h"
 #include "VirtualController.h"
 #include "steam/SteamController.h"
+#include <cmath>
 #include <cstdlib>
 #include <memory>
 
@@ -24,16 +25,19 @@ static uint8_t TrackpadDpadMask(int16_t x, int16_t y, bool active) {
     if (ax < DEADZONE && ay < DEADZONE)
         return 0;
 
-    uint8_t mask = 0;
-    if (iy > DEADZONE)
-        mask |= 0x01; // up
-    if (ix > DEADZONE)
-        mask |= 0x02; // right
-    if (iy < -DEADZONE)
-        mask |= 0x04; // down
-    if (ix < -DEADZONE)
-        mask |= 0x08; // left
-    return mask;
+    constexpr double RAD_TO_DEG = 180.0 / 3.14159265358979323846;
+    double degrees = std::atan2(static_cast<double>(iy), static_cast<double>(ix)) * RAD_TO_DEG;
+    if (degrees < 0.0)
+        degrees += 360.0;
+
+    if (degrees < 40.0 || degrees >= 320.0) return 0x02;        // right
+    if (degrees < 50.0) return 0x01 | 0x02;                     // up-right
+    if (degrees < 130.0) return 0x01;                           // up
+    if (degrees < 140.0) return 0x01 | 0x08;                    // up-left
+    if (degrees < 220.0) return 0x08;                           // left
+    if (degrees < 230.0) return 0x04 | 0x08;                    // down-left
+    if (degrees < 310.0) return 0x04;                           // down
+    return 0x04 | 0x02;                                         // down-right
 }
 
 ControllerManager::ControllerManager(StateChangedFn onStateChanged)

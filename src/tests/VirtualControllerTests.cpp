@@ -228,6 +228,51 @@ void TestDualShock4TouchSuppressionAndBackButtons() {
     Expect((mapped.buttons & 0x0001) != 0, "DS4 back button can map to PS");
 }
 
+ViiperDualShock4InputState BuildLeftTrackpadDpadDs4(int16_t x, int16_t y) {
+    SteamControllerState state{};
+    SetButtons(state, 0, 0, 0, SteamController::BTN_TP_LT_CLICK);
+    state.leftPadX = x;
+    state.leftPadY = y;
+
+    VirtualControllerRuntimeSettings settings{};
+    settings.trackpadDpadEnabled = true;
+    settings.useRightTrackpadForDpad = false;
+    return BuildViiperDualShock4Input(state, settings);
+}
+
+void TestTrackpadDpadSectorWidths() {
+    ExpectEq(BuildLeftTrackpadDpadDs4(30000, 15000).dpad,
+             0x08,
+             "Trackpad D-pad east keeps 80 degree cardinal sector");
+    ExpectEq(BuildLeftTrackpadDpadDs4(30000, 25000).dpad,
+             0x08,
+             "Trackpad D-pad east owns angle just below northeast");
+    ExpectEq(BuildLeftTrackpadDpadDs4(20000, 20000).dpad,
+             0x01 | 0x08,
+             "Trackpad D-pad northeast uses 10 degree diagonal sector");
+    ExpectEq(BuildLeftTrackpadDpadDs4(25000, 30000).dpad,
+             0x01,
+             "Trackpad D-pad north owns angle just above northeast");
+    ExpectEq(BuildLeftTrackpadDpadDs4(15000, 30000).dpad,
+             0x01,
+             "Trackpad D-pad north keeps 80 degree cardinal sector");
+    ExpectEq(BuildLeftTrackpadDpadDs4(-20000, 20000).dpad,
+             0x01 | 0x04,
+             "Trackpad D-pad northwest uses 10 degree diagonal sector");
+    ExpectEq(BuildLeftTrackpadDpadDs4(-30000, 15000).dpad,
+             0x04,
+             "Trackpad D-pad west keeps 80 degree cardinal sector");
+    ExpectEq(BuildLeftTrackpadDpadDs4(-20000, -20000).dpad,
+             0x02 | 0x04,
+             "Trackpad D-pad southwest uses 10 degree diagonal sector");
+    ExpectEq(BuildLeftTrackpadDpadDs4(15000, -30000).dpad,
+             0x02,
+             "Trackpad D-pad south keeps 80 degree cardinal sector");
+    ExpectEq(BuildLeftTrackpadDpadDs4(20000, -20000).dpad,
+             0x02 | 0x08,
+             "Trackpad D-pad southeast uses 10 degree diagonal sector");
+}
+
 void TestFeedbackDecoding() {
     uint8_t large = 0;
     uint8_t small = 0;
@@ -252,6 +297,7 @@ int main() {
     TestXbox360TrackpadDpadAndBackButtons();
     TestDualShock4Mapping();
     TestDualShock4TouchSuppressionAndBackButtons();
+    TestTrackpadDpadSectorWidths();
     TestFeedbackDecoding();
 
     std::cout << "SteamlessControllerTests passed\n";
