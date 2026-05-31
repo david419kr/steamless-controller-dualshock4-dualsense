@@ -11,10 +11,10 @@ The bundled `viiper-v0.6.1-ds4-compat.patch` updates VIIPER's DualShock 4 implem
 
 The bundled `viiper-v0.6.1-dualsense.patch` adds a SteamlessController-specific DualSense USB device with:
 
-- Sony DualSense `054C:0CE6` USB identity and `Wireless Controller` product string
+- Sony DualSense `054C:0CE6` USB identity and `DualSense Wireless Controller` product string
 - 64-byte USB input report `0x01` carrying sticks, buttons, triggers, touch, gyro, accel, and battery state
-- USB output report `0x02` parsing for compatible rumble and adaptive trigger effect blocks
-- minimal non-zero capability, calibration, firmware, and pairing feature reports
+- USB output report `0x02` and Bluetooth-style effect report `0x31` parsing for compatible rumble and adaptive trigger effect blocks
+- non-zero capability, calibration, firmware, serial/pairing, and common descriptor-listed feature reports
 
 Build the patched sidecar from this repository:
 

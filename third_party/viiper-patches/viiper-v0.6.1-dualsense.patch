@@ -1,29 +1,9 @@
-diff --git a/usb/hid/raw.go b/usb/hid/raw.go
-new file mode 100644
-index 0000000..278b31d
---- /dev/null
-+++ b/usb/hid/raw.go
-@@ -0,0 +1,13 @@
-+package hid
-+
-+// RawItem injects an already encoded HID descriptor byte stream.
-+// It is intended for descriptors copied from hardware traces where the
-+// structured item model would be more error-prone than the raw descriptor.
-+type RawItem struct {
-+	Data Data
-+}
-+
-+func (r RawItem) encode(e *encoder) error {
-+	e.buf = append(e.buf, r.Data...)
-+	return nil
-+}
-
 diff --git a/device/dualsense/const.go b/device/dualsense/const.go
 new file mode 100644
-index 0000000..128dbf4
+index 0000000..ee8e8b9
 --- /dev/null
 +++ b/device/dualsense/const.go
-@@ -0,0 +1,74 @@
+@@ -0,0 +1,75 @@
 +package dualsense
 +
 +const (
@@ -37,8 +17,9 @@ index 0000000..128dbf4
 +)
 +
 +const (
-+	ReportIDInput  = 0x01
-+	ReportIDOutput = 0x02
++	ReportIDInput            = 0x01
++	ReportIDOutput           = 0x02
++	ReportIDBluetoothEffects = 0x31
 +)
 +
 +const (
@@ -98,210 +79,12 @@ index 0000000..128dbf4
 +	DS5BatteryStatusCharging  = 0x01
 +	DS5BatteryStatusFull      = 0x02
 +)
-
-diff --git a/device/dualsense/inputstate.go b/device/dualsense/inputstate.go
-new file mode 100644
-index 0000000..da4f34b
---- /dev/null
-+++ b/device/dualsense/inputstate.go
-@@ -0,0 +1,123 @@
-+package dualsense
-+
-+import (
-+	"encoding/binary"
-+	"io"
-+)
-+
-+// viiper:wire dualsense c2s stickLX:u8 stickLY:u8 stickRX:u8 stickRY:u8 triggerL2:u8 triggerR2:u8 dpad:u8 buttons:u16 touch1X:u16 touch1Y:u16 touch1Active:bool touch2X:u16 touch2Y:u16 touch2Active:bool gyroX:i16 gyroY:i16 gyroZ:i16 accelX:i16 accelY:i16 accelZ:i16 batteryLevelPercent:u8 chargeState:u8
-+type InputState struct {
-+	LX, LY uint8
-+	RX, RY uint8
-+	L2, R2 uint8
-+	DPad   uint8
-+
-+	Buttons uint16
-+
-+	Touch1X, Touch1Y uint16
-+	Touch1Active     bool
-+	Touch2X, Touch2Y uint16
-+	Touch2Active     bool
-+
-+	GyroX, GyroY, GyroZ    int16
-+	AccelX, AccelY, AccelZ int16
-+	BatteryLevelPercent    uint8
-+	ChargeState            uint8
-+}
-+
-+func (s *InputState) MarshalBinary() ([]byte, error) {
-+	b := make([]byte, 33)
-+	b[0] = s.LX
-+	b[1] = s.LY
-+	b[2] = s.RX
-+	b[3] = s.RY
-+	b[4] = s.L2
-+	b[5] = s.R2
-+	b[6] = s.DPad
-+	binary.LittleEndian.PutUint16(b[7:9], s.Buttons)
-+	binary.LittleEndian.PutUint16(b[9:11], s.Touch1X)
-+	binary.LittleEndian.PutUint16(b[11:13], s.Touch1Y)
-+	if s.Touch1Active {
-+		b[13] = 1
-+	}
-+	binary.LittleEndian.PutUint16(b[14:16], s.Touch2X)
-+	binary.LittleEndian.PutUint16(b[16:18], s.Touch2Y)
-+	if s.Touch2Active {
-+		b[18] = 1
-+	}
-+	binary.LittleEndian.PutUint16(b[19:21], uint16(s.GyroX))
-+	binary.LittleEndian.PutUint16(b[21:23], uint16(s.GyroY))
-+	binary.LittleEndian.PutUint16(b[23:25], uint16(s.GyroZ))
-+	binary.LittleEndian.PutUint16(b[25:27], uint16(s.AccelX))
-+	binary.LittleEndian.PutUint16(b[27:29], uint16(s.AccelY))
-+	binary.LittleEndian.PutUint16(b[29:31], uint16(s.AccelZ))
-+	b[31] = s.BatteryLevelPercent
-+	b[32] = s.ChargeState
-+	return b, nil
-+}
-+
-+func (s *InputState) UnmarshalBinary(data []byte) error {
-+	if len(data) < 33 {
-+		return io.ErrUnexpectedEOF
-+	}
-+	s.LX = data[0]
-+	s.LY = data[1]
-+	s.RX = data[2]
-+	s.RY = data[3]
-+	s.L2 = data[4]
-+	s.R2 = data[5]
-+	s.DPad = data[6]
-+	s.Buttons = binary.LittleEndian.Uint16(data[7:9])
-+	s.Touch1X = binary.LittleEndian.Uint16(data[9:11])
-+	s.Touch1Y = binary.LittleEndian.Uint16(data[11:13])
-+	s.Touch1Active = data[13] != 0
-+	s.Touch2X = binary.LittleEndian.Uint16(data[14:16])
-+	s.Touch2Y = binary.LittleEndian.Uint16(data[16:18])
-+	s.Touch2Active = data[18] != 0
-+	s.GyroX = int16(binary.LittleEndian.Uint16(data[19:21]))
-+	s.GyroY = int16(binary.LittleEndian.Uint16(data[21:23]))
-+	s.GyroZ = int16(binary.LittleEndian.Uint16(data[23:25]))
-+	s.AccelX = int16(binary.LittleEndian.Uint16(data[25:27]))
-+	s.AccelY = int16(binary.LittleEndian.Uint16(data[27:29]))
-+	s.AccelZ = int16(binary.LittleEndian.Uint16(data[29:31]))
-+	s.BatteryLevelPercent = data[31]
-+	s.ChargeState = data[32]
-+	return nil
-+}
-+
-+// viiper:wire dualsense s2c enableBits1:u8 enableBits2:u8 rumbleRight:u8 rumbleLeft:u8 enableBits3:u8 rightTriggerEffect:u8*11 leftTriggerEffect:u8*11
-+type OutputState struct {
-+	EnableBits1        uint8
-+	EnableBits2        uint8
-+	RumbleRight        uint8
-+	RumbleLeft         uint8
-+	EnableBits3        uint8
-+	RightTriggerEffect [11]uint8
-+	LeftTriggerEffect  [11]uint8
-+}
-+
-+func (f *OutputState) MarshalBinary() ([]byte, error) {
-+	b := make([]byte, 27)
-+	b[0] = f.EnableBits1
-+	b[1] = f.EnableBits2
-+	b[2] = f.RumbleRight
-+	b[3] = f.RumbleLeft
-+	b[4] = f.EnableBits3
-+	copy(b[5:16], f.RightTriggerEffect[:])
-+	copy(b[16:27], f.LeftTriggerEffect[:])
-+	return b, nil
-+}
-+
-+func (f *OutputState) UnmarshalBinary(data []byte) error {
-+	if len(data) < 27 {
-+		return io.ErrUnexpectedEOF
-+	}
-+	f.EnableBits1 = data[0]
-+	f.EnableBits2 = data[1]
-+	f.RumbleRight = data[2]
-+	f.RumbleLeft = data[3]
-+	f.EnableBits3 = data[4]
-+	copy(f.RightTriggerEffect[:], data[5:16])
-+	copy(f.LeftTriggerEffect[:], data[16:27])
-+	return nil
-+}
-
-diff --git a/device/dualsense/handler.go b/device/dualsense/handler.go
-new file mode 100644
-index 0000000..e6669da
---- /dev/null
-+++ b/device/dualsense/handler.go
-@@ -0,0 +1,60 @@
-+package dualsense
-+
-+import (
-+	"fmt"
-+	"io"
-+	"log/slog"
-+	"net"
-+
-+	"github.com/Alia5/VIIPER/device"
-+	"github.com/Alia5/VIIPER/internal/server/api"
-+	"github.com/Alia5/VIIPER/usb"
-+)
-+
-+func init() {
-+	api.RegisterDevice("dualsense", &handler{})
-+}
-+
-+type handler struct{}
-+
-+func (h *handler) CreateDevice(o *device.CreateOptions) (usb.Device, error) { return New(o) }
-+
-+func (h *handler) StreamHandler() api.StreamHandlerFunc {
-+	return func(conn net.Conn, devPtr *usb.Device, logger *slog.Logger) error {
-+		if devPtr == nil || *devPtr == nil {
-+			return fmt.Errorf("nil device")
-+		}
-+		ds, ok := (*devPtr).(*DualSense)
-+		if !ok {
-+			return fmt.Errorf("device is not dualsense")
-+		}
-+
-+		ds.SetOutputCallback(func(feedback OutputState) {
-+			data, err := feedback.MarshalBinary()
-+			if err != nil {
-+				logger.Error("failed to marshal feedback", "error", err)
-+				return
-+			}
-+			if _, err := conn.Write(data); err != nil {
-+				logger.Error("failed to send feedback", "error", err)
-+			}
-+		})
-+
-+		buf := make([]byte, 33)
-+		for {
-+			if _, err := io.ReadFull(conn, buf); err != nil {
-+				if err == io.EOF {
-+					logger.Info("client disconnected")
-+					return nil
-+				}
-+				return fmt.Errorf("read input state: %w", err)
-+			}
-+
-+			var state InputState
-+			if err := state.UnmarshalBinary(buf); err != nil {
-+				return fmt.Errorf("unmarshal input state: %w", err)
-+			}
-+			ds.UpdateInputState(&state)
-+		}
-+	}
-+}
-
 diff --git a/device/dualsense/device.go b/device/dualsense/device.go
 new file mode 100644
-index 0000000..7766a3d
+index 0000000..af02e83
 --- /dev/null
 +++ b/device/dualsense/device.go
-@@ -0,0 +1,511 @@
+@@ -0,0 +1,573 @@
 +package dualsense
 +
 +import (
@@ -443,21 +226,28 @@ index 0000000..7766a3d
 +		}
 +
 +		if reportType == reportTypeFeature {
++			var report []byte
 +			switch reportID {
 +			case 0x03:
-+				return buildCapabilitiesFeatureReport(), true
++				report = buildCapabilitiesFeatureReport()
 +			case 0x05:
-+				return buildCalibrationFeatureReport(), true
++				report = buildCalibrationFeatureReport()
 +			case 0x09:
-+				return []byte{0x09, 0xC0, 0x13, 0x37, 0x05, 0x02, 0x06, 0x09, 0x25, 0x00, 0, 0, 0, 0, 0, 0}, true
++				report = buildSerialFeatureReport()
 +			case 0x20:
-+				return buildFirmwareFeatureReport(), true
++				report = buildFirmwareFeatureReport()
++			default:
++				report = buildGenericFeatureReport(reportID)
++			}
++			if len(report) > 0 {
++				return fitReportLength(report, wLength), true
 +			}
 +		}
 +	}
 +
 +	if bmRequestType == 0x21 && bRequest == hidSetReport {
-+		if reportType == reportTypeOutput && reportID == ReportIDOutput {
++		if reportType == reportTypeOutput &&
++			(reportID == ReportIDOutput || reportID == ReportIDBluetoothEffects) {
 +			if feedback, ok := parseOutputReport(data); ok {
 +				if d.outputFunc != nil {
 +					d.outputFunc(feedback)
@@ -479,6 +269,8 @@ index 0000000..7766a3d
 +func parseOutputReport(data []byte) (OutputState, bool) {
 +	if len(data) >= OutputReportSize && data[0] == ReportIDOutput {
 +		data = data[1:]
++	} else if len(data) >= 78 && data[0] == ReportIDBluetoothEffects {
++		data = data[3:]
 +	}
 +	if len(data) < 47 {
 +		return OutputState{}, false
@@ -693,6 +485,13 @@ index 0000000..7766a3d
 +	return b
 +}
 +
++func buildSerialFeatureReport() []byte {
++	b := make([]byte, 20)
++	b[0] = 0x09
++	copy(b[1:], []byte{0xC0, 0x13, 0x37, 0x05, 0x02, 0x06})
++	return b
++}
++
 +func buildCapabilitiesFeatureReport() []byte {
 +	b := make([]byte, 48)
 +	b[0] = 0x03
@@ -703,6 +502,48 @@ index 0000000..7766a3d
 +	return b
 +}
 +
++func buildGenericFeatureReport(reportID uint8) []byte {
++	sizes := map[uint8]int{
++		0x08: 48,
++		0x0A: 27,
++		0x21: 5,
++		0x22: 64,
++		0x80: 64,
++		0x81: 64,
++		0x82: 10,
++		0x83: 64,
++		0x84: 64,
++		0x85: 3,
++		0xA0: 2,
++		0xE0: 64,
++		0xF0: 64,
++		0xF1: 64,
++		0xF2: 16,
++		0xF4: 64,
++		0xF5: 4,
++	}
++	size, ok := sizes[reportID]
++	if !ok {
++		return nil
++	}
++	b := make([]byte, size)
++	b[0] = reportID
++	return b
++}
++
++func fitReportLength(report []byte, wLength uint16) []byte {
++	if wLength == 0 {
++		return report
++	}
++	size := int(wLength)
++	if len(report) == size {
++		return report
++	}
++	fit := make([]byte, size)
++	copy(fit, report)
++	return fit
++}
++
 +func buildFirmwareFeatureReport() []byte {
 +	b := make([]byte, 64)
 +	b[0] = 0x20
@@ -711,6 +552,8 @@ index 0000000..7766a3d
 +	b[34] = 0x00
 +	b[35] = 0x00
 +	b[36] = 0x02
++	b[44] = 0x24
++	b[45] = 0x02
 +	return b
 +}
 +
@@ -726,7 +569,7 @@ index 0000000..7766a3d
 +		BcdDevice:          0x0100,
 +		IManufacturer:      0x01,
 +		IProduct:           0x02,
-+		ISerialNumber:      0x00,
++		ISerialNumber:      0x03,
 +		BNumConfigurations: 0x01,
 +		Speed:              2,
 +	},
@@ -766,6 +609,7 @@ index 0000000..7766a3d
 +							0x06, 0x00, 0xff, 0x09, 0x22, 0x15, 0x00, 0x26,
 +							0xff, 0x00, 0x75, 0x08, 0x95, 0x34, 0x81, 0x02,
 +							0x85, 0x02, 0x09, 0x23, 0x95, 0x2f, 0x91, 0x02,
++							0x85, 0x03, 0x09, 0x32, 0x95, 0x2f, 0xb1, 0x02,
 +							0x85, 0x05, 0x09, 0x33, 0x95, 0x28, 0xb1, 0x02,
 +							0x85, 0x08, 0x09, 0x34, 0x95, 0x2f, 0xb1, 0x02,
 +							0x85, 0x09, 0x09, 0x24, 0x95, 0x13, 0xb1, 0x02,
@@ -810,31 +654,16 @@ index 0000000..7766a3d
 +	Strings: map[uint8]string{
 +		0: "\u0409",
 +		1: "Sony Interactive Entertainment",
-+		2: "Wireless Controller",
++		2: "DualSense Wireless Controller",
++		3: "0602053713C0",
 +	},
 +}
-
-diff --git a/internal/registry/devices.go b/internal/registry/devices.go
-index 9e57d75..95d5bcc 100644
---- a/internal/registry/devices.go
-+++ b/internal/registry/devices.go
-@@ -1,8 +1,9 @@
- package registry
- 
- import (
-+	_ "github.com/Alia5/VIIPER/device/dualsense"
- 	_ "github.com/Alia5/VIIPER/device/dualshock4"
- 	_ "github.com/Alia5/VIIPER/device/keyboard"
- 	_ "github.com/Alia5/VIIPER/device/mouse"
- 	_ "github.com/Alia5/VIIPER/device/xbox360"
- )
-
 diff --git a/device/dualsense/dualsense_test.go b/device/dualsense/dualsense_test.go
 new file mode 100644
-index 0000000..e3adff1
+index 0000000..2434694
 --- /dev/null
 +++ b/device/dualsense/dualsense_test.go
-@@ -0,0 +1,226 @@
+@@ -0,0 +1,253 @@
 +package dualsense
 +
 +import (
@@ -870,7 +699,8 @@ index 0000000..e3adff1
 +	requireEqual(t, desc.Device.IDVendor, vendor, "vendor override")
 +	requireEqual(t, desc.Device.IDProduct, product, "product override")
 +	requireEqual(t, desc.Strings[1], "Sony Interactive Entertainment", "manufacturer string")
-+	requireEqual(t, desc.Strings[2], "Wireless Controller", "product string")
++	requireEqual(t, desc.Strings[2], "DualSense Wireless Controller", "product string")
++	requireEqual(t, desc.Strings[3], "0602053713C0", "serial string")
 +	requireEqual(t, desc.Interfaces[0].Descriptor.BInterfaceClass, uint8(0x03), "hid interface class")
 +	requireEqual(t, desc.Interfaces[0].Endpoints[0].BEndpointAddress, uint8(EndpointIn), "input endpoint")
 +	requireEqual(t, desc.Interfaces[0].Endpoints[1].BEndpointAddress, uint8(EndpointOut), "output endpoint")
@@ -882,6 +712,9 @@ index 0000000..e3adff1
 +	if len(report) == 0 {
 +		t.Fatal("empty report descriptor")
 +	}
++	if !containsReportID(report, 0x03) {
++		t.Fatal("report descriptor does not declare capabilities feature report 0x03")
++	}
 +
 +	for _, tc := range []struct {
 +		name    string
@@ -891,8 +724,9 @@ index 0000000..e3adff1
 +	}{
 +		{"capabilities", 0x0303, 48, 0x03},
 +		{"calibration", 0x0305, 41, 0x05},
-+		{"pairing", 0x0309, 16, 0x09},
++		{"serial", 0x0309, 20, 0x09},
 +		{"firmware", 0x0320, 64, 0x20},
++		{"generic", 0x0380, 64, 0x80},
 +	} {
 +		resp, handled := dev.HandleControl(0xA1, 0x01, tc.wValue, 0, tc.wLength, nil)
 +		if !handled {
@@ -1023,6 +857,19 @@ index 0000000..e3adff1
 +	requireEqual(t, feedback.LeftTriggerEffect[10], uint8(0xDD), "left trigger last byte")
 +	requireEqual(t, feedback.EnableBits3, uint8(0x40), "enable bits 3")
 +
++	bluetoothReport := make([]byte, 78)
++	bluetoothReport[0] = ReportIDBluetoothEffects
++	bluetoothReport[2] = 0x10
++	bluetoothReport[3] = 0x01
++	bluetoothReport[5] = 0x77
++	bluetoothReport[6] = 0x88
++	bluetoothFeedback, ok := parseOutputReport(bluetoothReport)
++	if !ok {
++		t.Fatal("bluetooth-style output report was not parsed")
++	}
++	requireEqual(t, bluetoothFeedback.RumbleRight, uint8(0x77), "bluetooth right rumble")
++	requireEqual(t, bluetoothFeedback.RumbleLeft, uint8(0x88), "bluetooth left rumble")
++
 +	data, err := feedback.MarshalBinary()
 +	if err != nil {
 +		t.Fatal(err)
@@ -1034,6 +881,15 @@ index 0000000..e3adff1
 +		t.Fatal(err)
 +	}
 +	requireEqual(t, roundTrip, feedback, "feedback round trip")
++}
++
++func containsReportID(report []byte, id byte) bool {
++	for i := 0; i+1 < len(report); i++ {
++		if report[i] == 0x85 && report[i+1] == id {
++			return true
++		}
++	}
++	return false
 +}
 +
 +func TestOutputCallback(t *testing.T) {
@@ -1060,4 +916,230 @@ index 0000000..e3adff1
 +	}
 +	requireEqual(t, got.RumbleRight, uint8(0x44), "callback right rumble")
 +	requireEqual(t, got.RumbleLeft, uint8(0x55), "callback left rumble")
++}
+diff --git a/device/dualsense/handler.go b/device/dualsense/handler.go
+new file mode 100644
+index 0000000..e6669da
+--- /dev/null
++++ b/device/dualsense/handler.go
+@@ -0,0 +1,60 @@
++package dualsense
++
++import (
++	"fmt"
++	"io"
++	"log/slog"
++	"net"
++
++	"github.com/Alia5/VIIPER/device"
++	"github.com/Alia5/VIIPER/internal/server/api"
++	"github.com/Alia5/VIIPER/usb"
++)
++
++func init() {
++	api.RegisterDevice("dualsense", &handler{})
++}
++
++type handler struct{}
++
++func (h *handler) CreateDevice(o *device.CreateOptions) (usb.Device, error) { return New(o) }
++
++func (h *handler) StreamHandler() api.StreamHandlerFunc {
++	return func(conn net.Conn, devPtr *usb.Device, logger *slog.Logger) error {
++		if devPtr == nil || *devPtr == nil {
++			return fmt.Errorf("nil device")
++		}
++		ds, ok := (*devPtr).(*DualSense)
++		if !ok {
++			return fmt.Errorf("device is not dualsense")
++		}
++
++		ds.SetOutputCallback(func(feedback OutputState) {
++			data, err := feedback.MarshalBinary()
++			if err != nil {
++				logger.Error("failed to marshal feedback", "error", err)
++				return
++			}
++			if _, err := conn.Write(data); err != nil {
++				logger.Error("failed to send feedback", "error", err)
++			}
++		})
++
++		buf := make([]byte, 33)
++		for {
++			if _, err := io.ReadFull(conn, buf); err != nil {
++				if err == io.EOF {
++					logger.Info("client disconnected")
++					return nil
++				}
++				return fmt.Errorf("read input state: %w", err)
++			}
++
++			var state InputState
++			if err := state.UnmarshalBinary(buf); err != nil {
++				return fmt.Errorf("unmarshal input state: %w", err)
++			}
++			ds.UpdateInputState(&state)
++		}
++	}
++}
+diff --git a/device/dualsense/inputstate.go b/device/dualsense/inputstate.go
+new file mode 100644
+index 0000000..da4f34b
+--- /dev/null
++++ b/device/dualsense/inputstate.go
+@@ -0,0 +1,123 @@
++package dualsense
++
++import (
++	"encoding/binary"
++	"io"
++)
++
++// viiper:wire dualsense c2s stickLX:u8 stickLY:u8 stickRX:u8 stickRY:u8 triggerL2:u8 triggerR2:u8 dpad:u8 buttons:u16 touch1X:u16 touch1Y:u16 touch1Active:bool touch2X:u16 touch2Y:u16 touch2Active:bool gyroX:i16 gyroY:i16 gyroZ:i16 accelX:i16 accelY:i16 accelZ:i16 batteryLevelPercent:u8 chargeState:u8
++type InputState struct {
++	LX, LY uint8
++	RX, RY uint8
++	L2, R2 uint8
++	DPad   uint8
++
++	Buttons uint16
++
++	Touch1X, Touch1Y uint16
++	Touch1Active     bool
++	Touch2X, Touch2Y uint16
++	Touch2Active     bool
++
++	GyroX, GyroY, GyroZ    int16
++	AccelX, AccelY, AccelZ int16
++	BatteryLevelPercent    uint8
++	ChargeState            uint8
++}
++
++func (s *InputState) MarshalBinary() ([]byte, error) {
++	b := make([]byte, 33)
++	b[0] = s.LX
++	b[1] = s.LY
++	b[2] = s.RX
++	b[3] = s.RY
++	b[4] = s.L2
++	b[5] = s.R2
++	b[6] = s.DPad
++	binary.LittleEndian.PutUint16(b[7:9], s.Buttons)
++	binary.LittleEndian.PutUint16(b[9:11], s.Touch1X)
++	binary.LittleEndian.PutUint16(b[11:13], s.Touch1Y)
++	if s.Touch1Active {
++		b[13] = 1
++	}
++	binary.LittleEndian.PutUint16(b[14:16], s.Touch2X)
++	binary.LittleEndian.PutUint16(b[16:18], s.Touch2Y)
++	if s.Touch2Active {
++		b[18] = 1
++	}
++	binary.LittleEndian.PutUint16(b[19:21], uint16(s.GyroX))
++	binary.LittleEndian.PutUint16(b[21:23], uint16(s.GyroY))
++	binary.LittleEndian.PutUint16(b[23:25], uint16(s.GyroZ))
++	binary.LittleEndian.PutUint16(b[25:27], uint16(s.AccelX))
++	binary.LittleEndian.PutUint16(b[27:29], uint16(s.AccelY))
++	binary.LittleEndian.PutUint16(b[29:31], uint16(s.AccelZ))
++	b[31] = s.BatteryLevelPercent
++	b[32] = s.ChargeState
++	return b, nil
++}
++
++func (s *InputState) UnmarshalBinary(data []byte) error {
++	if len(data) < 33 {
++		return io.ErrUnexpectedEOF
++	}
++	s.LX = data[0]
++	s.LY = data[1]
++	s.RX = data[2]
++	s.RY = data[3]
++	s.L2 = data[4]
++	s.R2 = data[5]
++	s.DPad = data[6]
++	s.Buttons = binary.LittleEndian.Uint16(data[7:9])
++	s.Touch1X = binary.LittleEndian.Uint16(data[9:11])
++	s.Touch1Y = binary.LittleEndian.Uint16(data[11:13])
++	s.Touch1Active = data[13] != 0
++	s.Touch2X = binary.LittleEndian.Uint16(data[14:16])
++	s.Touch2Y = binary.LittleEndian.Uint16(data[16:18])
++	s.Touch2Active = data[18] != 0
++	s.GyroX = int16(binary.LittleEndian.Uint16(data[19:21]))
++	s.GyroY = int16(binary.LittleEndian.Uint16(data[21:23]))
++	s.GyroZ = int16(binary.LittleEndian.Uint16(data[23:25]))
++	s.AccelX = int16(binary.LittleEndian.Uint16(data[25:27]))
++	s.AccelY = int16(binary.LittleEndian.Uint16(data[27:29]))
++	s.AccelZ = int16(binary.LittleEndian.Uint16(data[29:31]))
++	s.BatteryLevelPercent = data[31]
++	s.ChargeState = data[32]
++	return nil
++}
++
++// viiper:wire dualsense s2c enableBits1:u8 enableBits2:u8 rumbleRight:u8 rumbleLeft:u8 enableBits3:u8 rightTriggerEffect:u8*11 leftTriggerEffect:u8*11
++type OutputState struct {
++	EnableBits1        uint8
++	EnableBits2        uint8
++	RumbleRight        uint8
++	RumbleLeft         uint8
++	EnableBits3        uint8
++	RightTriggerEffect [11]uint8
++	LeftTriggerEffect  [11]uint8
++}
++
++func (f *OutputState) MarshalBinary() ([]byte, error) {
++	b := make([]byte, 27)
++	b[0] = f.EnableBits1
++	b[1] = f.EnableBits2
++	b[2] = f.RumbleRight
++	b[3] = f.RumbleLeft
++	b[4] = f.EnableBits3
++	copy(b[5:16], f.RightTriggerEffect[:])
++	copy(b[16:27], f.LeftTriggerEffect[:])
++	return b, nil
++}
++
++func (f *OutputState) UnmarshalBinary(data []byte) error {
++	if len(data) < 27 {
++		return io.ErrUnexpectedEOF
++	}
++	f.EnableBits1 = data[0]
++	f.EnableBits2 = data[1]
++	f.RumbleRight = data[2]
++	f.RumbleLeft = data[3]
++	f.EnableBits3 = data[4]
++	copy(f.RightTriggerEffect[:], data[5:16])
++	copy(f.LeftTriggerEffect[:], data[16:27])
++	return nil
++}
+diff --git a/internal/registry/devices.go b/internal/registry/devices.go
+index 9e57d75..95d5bcc 100644
+--- a/internal/registry/devices.go
++++ b/internal/registry/devices.go
+@@ -1,6 +1,7 @@
+ package registry
+ 
+ import (
++	_ "github.com/Alia5/VIIPER/device/dualsense"
+ 	_ "github.com/Alia5/VIIPER/device/dualshock4"
+ 	_ "github.com/Alia5/VIIPER/device/keyboard"
+ 	_ "github.com/Alia5/VIIPER/device/mouse"
+diff --git a/usb/hid/raw.go b/usb/hid/raw.go
+new file mode 100644
+index 0000000..278b31d
+--- /dev/null
++++ b/usb/hid/raw.go
+@@ -0,0 +1,13 @@
++package hid
++
++// RawItem injects an already encoded HID descriptor byte stream.
++// It is intended for descriptors copied from hardware traces where the
++// structured item model would be more error-prone than the raw descriptor.
++type RawItem struct {
++	Data Data
++}
++
++func (r RawItem) encode(e *encoder) error {
++	e.buf = append(e.buf, r.Data...)
++	return nil
 +}
