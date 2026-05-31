@@ -75,6 +75,7 @@ public:
     static constexpr uint8_t CMD_SET_DEFAULT_MAPPINGS   = 0x85;  // ← lizard on
     static constexpr uint8_t CMD_SET_SETTINGS           = 0x87;
     static constexpr uint8_t CMD_GET_SETTINGS           = 0x89;
+    static constexpr uint8_t CMD_TRIGGER_HAPTIC_PULSE   = 0x8F;
 
     // Triton output report IDs.
     static constexpr uint8_t OUT_HAPTIC_RUMBLE          = 0x80;
@@ -201,6 +202,7 @@ private:
     bool SendSettingsPayload(const uint8_t* payload, uint8_t payloadSize);
     RumbleFrame CurrentRumbleFrameLocked(std::chrono::steady_clock::time_point now) const;
     bool SendRumbleOutput(uint16_t leftSpeed, uint16_t rightSpeed);
+    bool SendTrackpadFeaturePulse(uint8_t pad, uint16_t onUs, uint16_t offUs, uint16_t repeatCount, int16_t gainDb);
     bool SendTrackpadPulseOutput(uint8_t side, uint16_t onUs, uint16_t offUs, uint16_t repeatCount, int16_t gainDb);
     bool SendTrackpadCommandOutput(uint8_t side, uint8_t command, int8_t gainDb);
 
