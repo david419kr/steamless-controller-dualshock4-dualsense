@@ -142,6 +142,62 @@ bool FileExists(const std::wstring& path) {
     return attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY) == 0;
 }
 
+std::wstring GetEnvironmentValue(const wchar_t* name) {
+    const DWORD needed = GetEnvironmentVariableW(name, nullptr, 0);
+    if (needed == 0)
+        return {};
+
+    std::vector<wchar_t> buffer(needed);
+    const DWORD len = GetEnvironmentVariableW(name, buffer.data(), needed);
+    if (len == 0 || len >= needed)
+        return {};
+    return std::wstring(buffer.data(), len);
+}
+
+std::wstring QuoteCommandLineArg(const std::wstring& arg) {
+    std::wstring quoted = L"\"";
+    size_t backslashes = 0;
+    for (wchar_t ch : arg) {
+        if (ch == L'\\') {
+            ++backslashes;
+        } else if (ch == L'"') {
+            quoted.append(backslashes * 2 + 1, L'\\');
+            quoted.push_back(ch);
+            backslashes = 0;
+        } else {
+            quoted.append(backslashes, L'\\');
+            backslashes = 0;
+            quoted.push_back(ch);
+        }
+    }
+    quoted.append(backslashes * 2, L'\\');
+    quoted.push_back(L'"');
+    return quoted;
+}
+
+std::wstring BuildWritableViiperLogPath() {
+    std::wstring base = GetEnvironmentValue(L"LOCALAPPDATA");
+    if (base.empty()) {
+        std::vector<wchar_t> tempPath(MAX_PATH);
+        const DWORD len = GetTempPathW(static_cast<DWORD>(tempPath.size()), tempPath.data());
+        if (len > 0 && len < tempPath.size())
+            base.assign(tempPath.data(), len);
+    }
+    if (base.empty())
+        return {};
+
+    while (!base.empty() && (base.back() == L'\\' || base.back() == L'/'))
+        base.pop_back();
+
+    const std::wstring logDir = base + L"\\SteamlessController";
+    if (!CreateDirectoryW(logDir.c_str(), nullptr)) {
+        const DWORD err = GetLastError();
+        if (err != ERROR_ALREADY_EXISTS)
+            return {};
+    }
+    return logDir + L"\\viiper.log";
+}
+
 std::wstring ErrorMessageFor(VirtualControllerError error) {
     switch (error) {
     case VirtualControllerError::ViiperUnavailable:
@@ -151,7 +207,7 @@ std::wstring ErrorMessageFor(VirtualControllerError error) {
     case VirtualControllerError::ViiperStartFailed:
         return L"Failed to start bundled viiper.exe.";
     case VirtualControllerError::ViiperUnsupported:
-        return L"VIIPER server is not compatible. Need VIIPER v0.6.1 or newer.";
+        return L"VIIPER server is not compatible. Use the SteamlessController patched sidecar.";
     case VirtualControllerError::UsbIpDriverMissing:
         return L"usbip-win2 driver is required for VIIPER virtual USB attachment on Windows.";
     case VirtualControllerError::BusCreateFailed:
@@ -478,8 +534,10 @@ bool ViiperClient::SpawnBundledServer() {
         return false;
     }
 
-    std::wstring command =
-        L"\"" + viiperPath + L"\" server --log.file=viiper.log --update-notify none";
+    std::wstring command = QuoteCommandLineArg(viiperPath) + L" server --update-notify none";
+    const std::wstring logPath = BuildWritableViiperLogPath();
+    if (!logPath.empty())
+        command += L" " + QuoteCommandLineArg(L"--log.file=" + logPath);
     std::vector<wchar_t> commandLine(command.begin(), command.end());
     commandLine.push_back(L'\0');
 

@@ -23,13 +23,19 @@
       "name": "release",
       "configurePreset": "release",
       "configuration": "Release",
-      "targets": ["SteamlessController"]
+      "targets": ["ViiperSidecar"]
     },
     {
       "name": "debug",
       "configurePreset": "debug",
       "configuration": "Debug",
-      "targets": ["SteamlessController"]
+      "targets": ["ViiperSidecar"]
+    },
+    {
+      "name": "installer",
+      "configurePreset": "release",
+      "configuration": "Release",
+      "targets": ["PackageInstaller"]
     }
   ]
 }

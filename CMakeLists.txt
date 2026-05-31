@@ -56,6 +56,35 @@ if (MSVC)
     target_compile_options(SteamlessController PRIVATE /W4 /WX)
 endif()
 
+find_program(POWERSHELL_EXECUTABLE NAMES powershell pwsh)
+if (POWERSHELL_EXECUTABLE)
+    add_custom_target(ViiperSidecar
+        COMMAND ${POWERSHELL_EXECUTABLE}
+            -NoProfile
+            -ExecutionPolicy Bypass
+            -File "${CMAKE_SOURCE_DIR}/tools/build-viiper.ps1"
+            -OutputDir "$<TARGET_FILE_DIR:SteamlessController>"
+        DEPENDS SteamlessController
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+        COMMENT "Building patched VIIPER sidecar"
+        VERBATIM
+    )
+
+    add_custom_target(PackageInstaller
+        COMMAND ${POWERSHELL_EXECUTABLE}
+            -NoProfile
+            -ExecutionPolicy Bypass
+            -File "${CMAKE_SOURCE_DIR}/tools/build-installer.ps1"
+            -SkipBuild
+            -BuildDir "${CMAKE_BINARY_DIR}"
+            -Configuration "$<CONFIG>"
+        DEPENDS ViiperSidecar
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+        COMMENT "Building bundled installer"
+        VERBATIM
+    )
+endif()
+
 add_executable(SteamlessControllerTests
     src/tests/VirtualControllerTests.cpp
     src/app/VirtualControllerTypes.cpp

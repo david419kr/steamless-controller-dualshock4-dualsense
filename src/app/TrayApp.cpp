@@ -129,7 +129,7 @@ LRESULT TrayApp::HandleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_TRAY:
         if (LOWORD(lp) == NIN_BALLOONUSERCLICK &&
             m_lastVirtualControllerError != VirtualControllerError::None)
-            ShellExecuteW(nullptr, L"open", L"https://github.com/Alia5/VIIPER/releases/latest",
+            ShellExecuteW(nullptr, L"open", L"https://github.com/david419kr/steamless-controller-dualshock4/releases/latest",
                           nullptr, nullptr, SW_SHOWNORMAL);
         else if (LOWORD(lp) == WM_RBUTTONUP || LOWORD(lp) == WM_LBUTTONUP)
             ShowContextMenu();
@@ -297,9 +297,9 @@ static const wchar_t* VirtualControllerErrorTitle(VirtualControllerError error) 
 static const wchar_t* VirtualControllerErrorInfo(VirtualControllerError error) {
     switch (error) {
     case VirtualControllerError::ViiperExeMissing:
-        return L"Place viiper.exe next to SteamlessController.exe and try again.";
+        return L"Build or install the patched viiper.exe sidecar next to SteamlessController.exe.";
     case VirtualControllerError::ViiperUnsupported:
-        return L"Use the bundled patched VIIPER sidecar; DualShock 4 mode rejects stock v0.6.1.";
+        return L"Use the SteamlessController patched VIIPER sidecar; stock v0.6.1 is rejected in DualShock 4 mode.";
     case VirtualControllerError::UsbIpDriverMissing:
         return L"Install usbip-win2; VIIPER needs it to attach virtual USB devices on Windows.";
     case VirtualControllerError::DeviceCreateFailed:
@@ -307,7 +307,7 @@ static const wchar_t* VirtualControllerErrorInfo(VirtualControllerError error) {
     case VirtualControllerError::StreamConnectFailed:
         return L"SteamlessController could not connect to the VIIPER device stream.";
     default:
-        return L"SteamlessController could not reach VIIPER. Click here to open releases.";
+        return L"SteamlessController could not reach VIIPER. Click here to open SteamlessController releases.";
     }
 }
 

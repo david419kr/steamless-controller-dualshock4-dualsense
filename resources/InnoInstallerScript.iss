@@ -4,9 +4,18 @@
 
 #define MyAppName "SteamlessController"
 #define MyAppVersion "1.0"
-#define MyAppPublisher "Dylan Deverill"
-#define MyAppURL "https://github.com/ddeverill/SteamlessController"
+#define MyAppPublisher "SteamlessController contributors"
+#define MyAppURL "https://github.com/david419kr/steamless-controller-dualshock4"
 #define MyAppExeName "SteamlessController.exe"
+#ifndef MyBuildDir
+#define MyBuildDir "..\build\release\Release"
+#endif
+#ifndef PrereqDir
+#define PrereqDir "..\build\prereqs"
+#endif
+#ifndef InstallerOutputDir
+#define InstallerOutputDir "..\build\installer"
+#endif
 
 [Setup]
 ; NOTE: The value of AppId uniquely identifies this application. Do not use the same AppId value in installers for other applications.
@@ -30,10 +39,10 @@ ArchitecturesAllowed=x64compatible
 ; the 64-bit view of the registry.
 ArchitecturesInstallIn64BitMode=x64compatible
 DisableProgramGroupPage=yes
-; Uncomment the following line to run in non administrative install mode (install for current user only).
-;PrivilegesRequired=lowest
+PrivilegesRequired=admin
 OutputBaseFilename=SteamlessController-Setup
-SetupIconFile=C:\Users\ddeve\iCloudDrive\Development\SteamlessController\resources\SteamControllerON.ico
+OutputDir={#InstallerOutputDir}
+SetupIconFile=SteamControllerON.ico
 SolidCompression=yes
 WizardStyle=modern
 
@@ -41,10 +50,18 @@ WizardStyle=modern
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
-Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
+Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
+Name: "install_hidhide"; Description: "Install HidHide for Steam duplicate-input prevention (recommended)"; GroupDescription: "Optional components:"
 
 [Files]
-Source: "C:\Users\ddeve\iCloudDrive\Development\SteamlessController\build\release\Release\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#PrereqDir}\VC_redist.x64.exe"; DestName: "VC_redist.x64.exe"; Flags: dontcopy noencryption
+Source: "{#PrereqDir}\USBip-x64.exe"; DestName: "USBip-x64.exe"; Flags: dontcopy noencryption
+Source: "{#PrereqDir}\HidHide-x64.exe"; DestName: "HidHide-x64.exe"; Flags: dontcopy noencryption
+Source: "{#MyBuildDir}\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#MyBuildDir}\viiper.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#MyBuildDir}\VIIPER-LICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#MyBuildDir}\VIIPER-SOURCE.txt"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#MyBuildDir}\viiper-v0.6.1-ds4-compat.patch"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 ; NOTE: Don't use "Flags: ignoreversion" on any shared system files
 
 [Icons]
@@ -52,5 +69,108 @@ Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent; Check: ShouldOfferLaunch
+
+[Code]
+var
+  PrereqNeedsRestart: Boolean;
+
+function IsVcRuntimeInstalled(): Boolean;
+var
+  Installed: Cardinal;
+begin
+  Result := RegQueryDWordValue(HKLM64, 'SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64', 'Installed', Installed) and
+            (Installed = 1);
+end;
+
+function IsUsbIpInstalled(): Boolean;
+begin
+  Result := FileExists(ExpandConstant('{commonpf}\USBip\usbip.exe')) or
+            FileExists(ExpandConstant('{commonpf}\USBip\usbipd.exe'));
+end;
+
+function IsHidHideInstalled(): Boolean;
+begin
+  Result :=
+    FileExists('C:\Program Files\Nefarius Software Solutions\HidHide\x64\HidHideCLI.exe') or
+    FileExists('C:\Program Files\Nefarius Software Solutions\HidHide\HidHideCLI.exe') or
+    FileExists('C:\Program Files\Nefarius Software Solutions e.U\HidHide\x64\HidHideCLI.exe') or
+    FileExists('C:\Program Files\Nefarius Software Solutions e.U\HidHide\HidHideCLI.exe');
+end;
+
+function IsSuccessOrRestartCode(ResultCode: Integer): Boolean;
+begin
+  Result := (ResultCode = 0) or
+            (ResultCode = 3010) or
+            (ResultCode = 1641) or
+            (ResultCode = 1638);
+end;
+
+function RunPrereq(FileName, Params, DisplayName: String): Boolean;
+var
+  ResultCode: Integer;
+  InstallerPath: String;
+begin
+  Result := False;
+  Log('Installing prerequisite: ' + DisplayName);
+  ExtractTemporaryFile(FileName);
+  InstallerPath := ExpandConstant('{tmp}\' + FileName);
+
+  if not Exec(InstallerPath, Params, '', SW_SHOW, ewWaitUntilTerminated, ResultCode) then
+  begin
+    MsgBox('Failed to start ' + DisplayName + ' installer.', mbError, MB_OK);
+    Exit;
+  end;
+
+  if not IsSuccessOrRestartCode(ResultCode) then
+  begin
+    MsgBox(DisplayName + ' installer failed with exit code ' + IntToStr(ResultCode) + '.', mbError, MB_OK);
+    Exit;
+  end;
+
+  if (ResultCode = 3010) or (ResultCode = 1641) then
+    PrereqNeedsRestart := True;
+
+  Result := True;
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  Result := '';
+  PrereqNeedsRestart := False;
+
+  if not IsVcRuntimeInstalled() then
+  begin
+    if not RunPrereq('VC_redist.x64.exe', '/install /quiet /norestart', 'Microsoft Visual C++ Redistributable 2015-2022 x64') then
+    begin
+      Result := 'Microsoft Visual C++ Redistributable installation failed.';
+      Exit;
+    end;
+  end;
+
+  if not IsUsbIpInstalled() then
+  begin
+    if not RunPrereq('USBip-x64.exe', '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART', 'usbip-win2') then
+    begin
+      Result := 'usbip-win2 installation failed.';
+      Exit;
+    end;
+  end;
+
+  if WizardIsTaskSelected('install_hidhide') and not IsHidHideInstalled() then
+  begin
+    if not RunPrereq('HidHide-x64.exe', '/exenoui /qn REBOOT=ReallySuppress', 'HidHide') then
+    begin
+      Result := 'HidHide installation failed.';
+      Exit;
+    end;
+  end;
+
+  NeedsRestart := PrereqNeedsRestart;
+end;
+
+function ShouldOfferLaunch(): Boolean;
+begin
+  Result := not PrereqNeedsRestart;
+end;
 
