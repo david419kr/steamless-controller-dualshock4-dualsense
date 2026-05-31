@@ -1,6 +1,8 @@
 #pragma once
 #include "BackButtonMapping.h"
+#include "VirtualControllerTypes.h"
 #include <Windows.h>
+#include <dbt.h>
 #include <cstddef>
 #include <memory>
 
@@ -20,9 +22,13 @@ private:
 
     void AddTrayIcon();
     void RemoveTrayIcon();
-    void UpdateTrayIcon(bool connected, bool gameModeActive, bool vigemMissing = false);
-    void ShowViGEmBalloon();
+    void UpdateTrayIcon(bool connected,
+                        bool gameModeActive,
+                        VirtualControllerError virtualControllerError = VirtualControllerError::None);
+    void ShowVirtualControllerBalloon(VirtualControllerError error);
+    void ShowTrayBalloon(const wchar_t* title, const wchar_t* info, DWORD infoFlags);
     void ShowContextMenu();
+    void RestartSteam();
     void LoadSettings();
     void SaveSettings();
     bool IsStartupEnabled() const;
@@ -36,11 +42,13 @@ private:
     HWND                               m_hwnd      = nullptr;
     HWND                               m_backButtonHwnd = nullptr;
     HWND                               m_backButtonCombos[static_cast<size_t>(BackButtonId::Count)]{};
+    HDEVNOTIFY                         m_deviceNotify = nullptr;
     HINSTANCE                          m_hInstance = nullptr;
     UINT                               m_wmTaskbar = 0;
     HICON                              m_iconOff   = nullptr;
     HICON                              m_iconOn    = nullptr;
     std::unique_ptr<ControllerManager> m_controller;
+    VirtualControllerError             m_lastVirtualControllerError = VirtualControllerError::None;
 
     static constexpr UINT IDM_TOGGLE        = 1001;
     static constexpr UINT IDM_EXIT          = 1002;
@@ -55,10 +63,13 @@ private:
     static constexpr UINT IDM_TRACKPAD_DPAD = 1011;
     static constexpr UINT IDM_TRACKPAD_DPAD_RIGHT = 1012;
     static constexpr UINT IDM_BACKBUTTON_MAPPINGS = 1013;
+    static constexpr UINT IDM_RESTART_STEAM = 1014;
     static constexpr UINT IDC_BACKMAP_L4 = 2001;
     static constexpr UINT IDC_BACKMAP_L5 = 2002;
     static constexpr UINT IDC_BACKMAP_R4 = 2003;
     static constexpr UINT IDC_BACKMAP_R5 = 2004;
     static constexpr UINT WM_TRAY          = WM_APP + 1;
     static constexpr UINT TRAY_UID         = 1;
+    static constexpr UINT_PTR DEVICE_POLL_TIMER_ID = 3001;
+    static constexpr UINT DEVICE_POLL_INTERVAL_MS = 1000;
 };

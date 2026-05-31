@@ -4,6 +4,11 @@
 #include <shellapi.h>
 #include <dbt.h>
 #include <winreg.h>
+#include <tlhelp32.h>
+#include <chrono>
+#include <string>
+#include <thread>
+#include <utility>
 
 static TrayApp* g_app = nullptr;
 
@@ -41,6 +46,12 @@ TrayApp::TrayApp() {
 }
 
 TrayApp::~TrayApp() {
+    if (m_hwnd)
+        KillTimer(m_hwnd, DEVICE_POLL_TIMER_ID);
+    if (m_deviceNotify) {
+        UnregisterDeviceNotification(m_deviceNotify);
+        m_deviceNotify = nullptr;
+    }
     RemoveTrayIcon();
     g_app = nullptr;
 }
@@ -79,15 +90,16 @@ bool TrayApp::Init(HINSTANCE hInstance) {
     // HID device interface GUID
     filter.dbcc_classguid  = {0x4D1E55B2, 0xF16F, 0x11CF,
                               {0x88, 0xCB, 0x00, 0x11, 0x11, 0x00, 0x00, 0x30}};
-    RegisterDeviceNotificationW(m_hwnd, &filter, DEVICE_NOTIFY_WINDOW_HANDLE);
+    m_deviceNotify = RegisterDeviceNotificationW(m_hwnd, &filter, DEVICE_NOTIFY_WINDOW_HANDLE);
 
     m_controller = std::make_unique<ControllerManager>(
-        [this](bool connected, bool gameModeActive, bool vigemMissing) {
-            UpdateTrayIcon(connected, gameModeActive, vigemMissing);
+        [this](bool connected, bool gameModeActive, VirtualControllerError virtualError) {
+            UpdateTrayIcon(connected, gameModeActive, virtualError);
         });
 
     LoadSettings();
     AddTrayIcon();
+    SetTimer(m_hwnd, DEVICE_POLL_TIMER_ID, DEVICE_POLL_INTERVAL_MS, nullptr);
     return true;
 }
 
@@ -115,8 +127,9 @@ LRESULT TrayApp::HandleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 
     switch (msg) {
     case WM_TRAY:
-        if (LOWORD(lp) == NIN_BALLOONUSERCLICK)
-            ShellExecuteW(nullptr, L"open", L"https://github.com/nefarius/ViGEmBus/releases/latest",
+        if (LOWORD(lp) == NIN_BALLOONUSERCLICK &&
+            m_lastVirtualControllerError != VirtualControllerError::None)
+            ShellExecuteW(nullptr, L"open", L"https://github.com/Alia5/VIIPER/releases/latest",
                           nullptr, nullptr, SW_SHOWNORMAL);
         else if (LOWORD(lp) == WM_RBUTTONUP || LOWORD(lp) == WM_LBUTTONUP)
             ShowContextMenu();
@@ -177,6 +190,9 @@ LRESULT TrayApp::HandleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         case IDM_REVEAL_ORIGINAL:
             m_controller->RevealOriginalControllerNow();
             break;
+        case IDM_RESTART_STEAM:
+            RestartSteam();
+            break;
         case IDM_STARTUP:
             SetStartupEnabled(!IsStartupEnabled());
             break;
@@ -191,6 +207,13 @@ LRESULT TrayApp::HandleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         if (wp == DBT_DEVICEARRIVAL || wp == DBT_DEVICEREMOVECOMPLETE)
             m_controller->OnDeviceChange();
         return TRUE;
+
+    case WM_TIMER:
+        if (wp == DEVICE_POLL_TIMER_ID) {
+            m_controller->PollForController();
+            return 0;
+        }
+        break;
 
     case WM_CLOSE:
         if (hwnd == m_backButtonHwnd) {
@@ -234,8 +257,14 @@ void TrayApp::RemoveTrayIcon() {
     Shell_NotifyIconW(NIM_DELETE, &nid);
 }
 
-void TrayApp::UpdateTrayIcon(bool connected, bool gameModeActive, bool vigemMissing) {
-    if (vigemMissing) { ShowViGEmBalloon(); return; }
+void TrayApp::UpdateTrayIcon(bool connected,
+                             bool gameModeActive,
+                             VirtualControllerError virtualControllerError) {
+    m_lastVirtualControllerError = virtualControllerError;
+    if (virtualControllerError != VirtualControllerError::None) {
+        ShowVirtualControllerBalloon(virtualControllerError);
+        return;
+    }
     bool gameModeOn = gameModeActive;
 
     const wchar_t* tip = gameModeOn  ? L"Steamless Controller — Steamless Mode ON"
@@ -252,21 +281,211 @@ void TrayApp::UpdateTrayIcon(bool connected, bool gameModeActive, bool vigemMiss
     Shell_NotifyIconW(NIM_MODIFY, &nid);
 }
 
-void TrayApp::ShowViGEmBalloon() {
+static const wchar_t* VirtualControllerErrorTitle(VirtualControllerError error) {
+    switch (error) {
+    case VirtualControllerError::ViiperExeMissing:
+        return L"VIIPER sidecar required";
+    case VirtualControllerError::ViiperUnsupported:
+        return L"Unsupported VIIPER version";
+    case VirtualControllerError::UsbIpDriverMissing:
+        return L"USBIP driver required";
+    default:
+        return L"VIIPER backend unavailable";
+    }
+}
+
+static const wchar_t* VirtualControllerErrorInfo(VirtualControllerError error) {
+    switch (error) {
+    case VirtualControllerError::ViiperExeMissing:
+        return L"Place viiper.exe next to SteamlessController.exe and try again.";
+    case VirtualControllerError::ViiperUnsupported:
+        return L"VIIPER v0.6.1 or newer is required. Click here to open releases.";
+    case VirtualControllerError::UsbIpDriverMissing:
+        return L"Install usbip-win2; VIIPER needs it to attach virtual USB devices on Windows.";
+    case VirtualControllerError::DeviceCreateFailed:
+        return L"VIIPER could not create or attach the virtual controller.";
+    case VirtualControllerError::StreamConnectFailed:
+        return L"SteamlessController could not connect to the VIIPER device stream.";
+    default:
+        return L"SteamlessController could not reach VIIPER. Click here to open releases.";
+    }
+}
+
+void TrayApp::ShowVirtualControllerBalloon(VirtualControllerError error) {
+    ShowTrayBalloon(VirtualControllerErrorTitle(error),
+                    VirtualControllerErrorInfo(error),
+                    NIIF_WARNING);
+}
+
+void TrayApp::ShowTrayBalloon(const wchar_t* title, const wchar_t* info, DWORD infoFlags) {
     NOTIFYICONDATAW nid{};
     nid.cbSize           = sizeof(nid);
     nid.hWnd             = m_hwnd;
     nid.uID              = TRAY_UID;
     nid.uFlags           = NIF_INFO;
-    nid.dwInfoFlags      = NIIF_WARNING;
-    wcscpy_s(nid.szInfoTitle, L"Driver required");
-    wcscpy_s(nid.szInfo,      L"ViGEmBus is not installed. Click here to download it.");
+    nid.dwInfoFlags      = infoFlags;
+    wcscpy_s(nid.szInfoTitle, title);
+    wcscpy_s(nid.szInfo,      info);
     Shell_NotifyIconW(NIM_MODIFY, &nid);
 }
 
 static constexpr wchar_t REG_KEY[]     = L"Software\\SteamlessController";
 static constexpr wchar_t REG_RUN_KEY[] = L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
 static constexpr wchar_t APP_NAME[]    = L"SteamlessController";
+static constexpr wchar_t STEAM_PROCESS_NAME[] = L"steam.exe";
+
+static std::wstring TrimRegistryString(std::wstring value) {
+    while (!value.empty() && value.back() == L'\0')
+        value.pop_back();
+    if (value.size() >= 2 && value.front() == L'"' && value.back() == L'"')
+        value = value.substr(1, value.size() - 2);
+    for (wchar_t& ch : value) {
+        if (ch == L'/')
+            ch = L'\\';
+    }
+    return value;
+}
+
+static bool FileExists(const std::wstring& path) {
+    const DWORD attrs = GetFileAttributesW(path.c_str());
+    return attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY) == 0;
+}
+
+static std::wstring ReadRegistryString(HKEY root,
+                                       const wchar_t* subkey,
+                                       const wchar_t* valueName,
+                                       REGSAM viewFlags = 0) {
+    HKEY key = nullptr;
+    if (RegOpenKeyExW(root, subkey, 0, KEY_READ | viewFlags, &key) != ERROR_SUCCESS)
+        return {};
+
+    DWORD type = 0;
+    DWORD size = 0;
+    if (RegQueryValueExW(key, valueName, nullptr, &type, nullptr, &size) != ERROR_SUCCESS ||
+        (type != REG_SZ && type != REG_EXPAND_SZ) ||
+        size == 0) {
+        RegCloseKey(key);
+        return {};
+    }
+
+    std::wstring value(size / sizeof(wchar_t), L'\0');
+    if (RegQueryValueExW(key, valueName, nullptr, nullptr,
+                         reinterpret_cast<LPBYTE>(value.data()), &size) != ERROR_SUCCESS) {
+        RegCloseKey(key);
+        return {};
+    }
+    RegCloseKey(key);
+
+    value = TrimRegistryString(value);
+    if (type == REG_EXPAND_SZ) {
+        DWORD expandedSize = ExpandEnvironmentStringsW(value.c_str(), nullptr, 0);
+        if (expandedSize > 0) {
+            std::wstring expanded(expandedSize, L'\0');
+            ExpandEnvironmentStringsW(value.c_str(), expanded.data(), expandedSize);
+            value = TrimRegistryString(expanded);
+        }
+    }
+    return value;
+}
+
+static std::wstring SteamExeFromPath(std::wstring path) {
+    path = TrimRegistryString(std::move(path));
+    if (path.empty())
+        return {};
+    if (FileExists(path))
+        return path;
+    if (path.back() != L'\\')
+        path.push_back(L'\\');
+    path += STEAM_PROCESS_NAME;
+    return FileExists(path) ? path : std::wstring{};
+}
+
+static std::wstring FindSteamExecutablePath() {
+    struct RegistryProbe {
+        HKEY root;
+        const wchar_t* subkey;
+        const wchar_t* valueName;
+        REGSAM viewFlags;
+        bool valueIsDirectory;
+    };
+
+    const RegistryProbe probes[] = {
+        {HKEY_CURRENT_USER, L"Software\\Valve\\Steam", L"SteamExe", 0, false},
+        {HKEY_CURRENT_USER, L"Software\\Valve\\Steam", L"SteamPath", 0, true},
+        {HKEY_LOCAL_MACHINE, L"Software\\Valve\\Steam", L"InstallPath", KEY_WOW64_32KEY, true},
+        {HKEY_LOCAL_MACHINE, L"Software\\Valve\\Steam", L"InstallPath", KEY_WOW64_64KEY, true},
+    };
+
+    for (const auto& probe : probes) {
+        std::wstring value = ReadRegistryString(probe.root, probe.subkey, probe.valueName, probe.viewFlags);
+        if (value.empty())
+            continue;
+        std::wstring exe = probe.valueIsDirectory ? SteamExeFromPath(value) : TrimRegistryString(value);
+        if (FileExists(exe))
+            return exe;
+    }
+
+    wchar_t programFilesX86[MAX_PATH]{};
+    DWORD len = GetEnvironmentVariableW(L"ProgramFiles(x86)", programFilesX86, MAX_PATH);
+    if (len > 0 && len < MAX_PATH) {
+        std::wstring exe = std::wstring(programFilesX86) + L"\\Steam\\steam.exe";
+        if (FileExists(exe))
+            return exe;
+    }
+
+    wchar_t programFiles[MAX_PATH]{};
+    len = GetEnvironmentVariableW(L"ProgramFiles", programFiles, MAX_PATH);
+    if (len > 0 && len < MAX_PATH) {
+        std::wstring exe = std::wstring(programFiles) + L"\\Steam\\steam.exe";
+        if (FileExists(exe))
+            return exe;
+    }
+
+    return {};
+}
+
+static bool IsSteamRunning() {
+    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (snapshot == INVALID_HANDLE_VALUE)
+        return false;
+
+    PROCESSENTRY32W entry{};
+    entry.dwSize = sizeof(entry);
+    bool running = false;
+    if (Process32FirstW(snapshot, &entry)) {
+        do {
+            if (_wcsicmp(entry.szExeFile, STEAM_PROCESS_NAME) == 0) {
+                running = true;
+                break;
+            }
+        } while (Process32NextW(snapshot, &entry));
+    }
+
+    CloseHandle(snapshot);
+    return running;
+}
+
+static void RestartSteamProcess(std::wstring steamExe) {
+    if (IsSteamRunning()) {
+        ShellExecuteW(nullptr, L"open", steamExe.c_str(), L"-shutdown", nullptr, SW_HIDE);
+        for (int i = 0; i < 60 && IsSteamRunning(); ++i)
+            std::this_thread::sleep_for(std::chrono::milliseconds(250));
+    }
+
+    ShellExecuteW(nullptr, L"open", steamExe.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+}
+
+void TrayApp::RestartSteam() {
+    std::wstring steamExe = FindSteamExecutablePath();
+    if (steamExe.empty()) {
+        ShowTrayBalloon(L"Steam not found",
+                        L"SteamlessController could not find steam.exe in the registry or default install paths.",
+                        NIIF_WARNING);
+        return;
+    }
+
+    std::thread(RestartSteamProcess, std::move(steamExe)).detach();
+}
 
 bool TrayApp::IsStartupEnabled() const {
     HKEY key;
@@ -601,6 +820,8 @@ void TrayApp::ShowContextMenu() {
 
     UINT revealFlags = MF_STRING | (hidHideAvailable ? MF_ENABLED : MF_GRAYED);
     AppendMenuW(menu, revealFlags, IDM_REVEAL_ORIGINAL, L"Reveal Original Now");
+
+    AppendMenuW(menu, MF_STRING, IDM_RESTART_STEAM, L"Restart Steam");
 
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
 

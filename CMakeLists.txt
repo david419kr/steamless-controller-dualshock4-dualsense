@@ -29,18 +29,6 @@ if (MSVC)
     set_target_properties(SteamProbe PROPERTIES LINK_FLAGS_DEBUG "/SUBSYSTEM:CONSOLE")
 endif()
 
-# ViGEmClient (built from source, static)
-add_library(ViGEmClient STATIC
-    third_party/ViGEmClient-b66d02d/src/ViGEmClient.cpp
-)
-target_include_directories(ViGEmClient PUBLIC
-    third_party/ViGEmClient-b66d02d/include
-)
-target_link_libraries(ViGEmClient PUBLIC setupapi)
-if (MSVC)
-    target_compile_options(ViGEmClient PRIVATE /W0)
-endif()
-
 # RawGameController diagnostic probe (WinRT)
 add_executable(RawControllerProbe
     src/probe/RawControllerProbe.cpp
@@ -57,11 +45,24 @@ add_executable(SteamlessController WIN32
     src/app/ControllerManager.cpp
     src/app/HidHideController.cpp
     src/app/VirtualController.cpp
+    src/app/VirtualControllerTypes.cpp
+    src/app/ViiperClient.cpp
     src/app/TrackpadMouse.cpp
     resources/app.rc
 )
 target_include_directories(SteamlessController PRIVATE resources)
-target_link_libraries(SteamlessController PRIVATE SteamController ViGEmClient)
+target_link_libraries(SteamlessController PRIVATE SteamController ws2_32)
 if (MSVC)
     target_compile_options(SteamlessController PRIVATE /W4 /WX)
+endif()
+
+add_executable(SteamlessControllerTests
+    src/tests/VirtualControllerTests.cpp
+    src/app/VirtualControllerTypes.cpp
+    src/app/ViiperClient.cpp
+)
+target_include_directories(SteamlessControllerTests PRIVATE src)
+target_link_libraries(SteamlessControllerTests PRIVATE ws2_32)
+if (MSVC)
+    target_compile_options(SteamlessControllerTests PRIVATE /W4 /WX)
 endif()

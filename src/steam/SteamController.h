@@ -164,7 +164,7 @@ public:
     SteamController& operator=(const SteamController&) = delete;
 
     // Finds and opens the vendor HID interface. Returns false if not found.
-    bool Open();
+    bool Open(uint32_t activeReportTimeoutMs = 500);
     void Close();
     bool IsOpen() const { return m_device.IsOpen(); }
 

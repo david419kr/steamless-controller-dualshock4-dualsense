@@ -15,7 +15,9 @@
 // All public methods are safe to call from the UI thread.
 class ControllerManager {
 public:
-    using StateChangedFn = std::function<void(bool connected, bool gameModeActive, bool vigemMissing)>;
+    using StateChangedFn = std::function<void(bool connected,
+                                              bool gameModeActive,
+                                              VirtualControllerError virtualControllerError)>;
 
     explicit ControllerManager(StateChangedFn onStateChanged);
     ~ControllerManager();
@@ -24,6 +26,7 @@ public:
 
     // Called when Windows reports a device arrival or removal (WM_DEVICECHANGE).
     void OnDeviceChange();
+    void PollForController();
 
     // Toggle game mode on/off. No-op if controller is not connected.
     void EnableGameMode();
@@ -54,7 +57,7 @@ public:
     bool HasBackButtonMappings() const { return m_backButtonMappings.AnyAssigned(); }
 
 private:
-    void TryOpen();
+    void TryOpen(uint32_t activeReportTimeoutMs = 500);
     void Close(bool restoreLizard);
     void StartReadLoop();
     void StopReadLoop();

@@ -84,7 +84,7 @@ static constexpr int16_t TRACKPAD_CLICK_PULSE_GAIN_DB = 40;
 // Open / Close
 // ---------------------------------------------------------------------------
 
-bool SteamController::Open() {
+bool SteamController::Open(uint32_t activeReportTimeoutMs) {
     for (uint16_t pid : { SC2026_PID, SC2026_DONGLE_PID }) {
         auto paths = HidDevice::Enumerate(VALVE_VID, pid, VENDOR_USAGE_PAGE);
         if (paths.empty()) continue;
@@ -96,7 +96,7 @@ bool SteamController::Open() {
             if (!m_device.Open(path)) continue;
 
             uint8_t buf[64];
-            size_t n = m_device.ReadInputReport(buf, sizeof(buf), /*timeoutMs=*/500);
+            size_t n = m_device.ReadInputReport(buf, sizeof(buf), activeReportTimeoutMs);
             if (n > 0 && IsStateReportId(buf[0])) {
                 printf("Active interface found for PID=%04X.\n", pid);
                 return true;

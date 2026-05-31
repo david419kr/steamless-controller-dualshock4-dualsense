@@ -5,6 +5,7 @@
 #include <memory>
 
 static std::unique_ptr<SteamController> g_ctrl;
+static constexpr uint32_t POLL_OPEN_REPORT_TIMEOUT_MS = 75;
 
 static uint8_t ButtonByte(const SteamControllerState& state, int index) {
     return static_cast<uint8_t>((state.buttons >> (index * 8)) & 0xFF);
@@ -53,6 +54,13 @@ void ControllerManager::OnDeviceChange() {
         Close(/*restoreLizard=*/false);
 }
 
+void ControllerManager::PollForController() {
+    if (!m_connected)
+        TryOpen(POLL_OPEN_REPORT_TIMEOUT_MS);
+    else if (g_ctrl && !g_ctrl->IsOpen())
+        Close(/*restoreLizard=*/false);
+}
+
 void ControllerManager::EnableGameMode() {
     if (!m_connected || m_gameModeActive) return;
     if (!g_ctrl->DisableLizardMode()) return;
@@ -76,7 +84,7 @@ void ControllerManager::EnableGameMode() {
                 g_ctrl->SetRumble(largeMotor, smallMotor);
         });
     if (!m_virtual->IsValid()) {
-        bool missing = m_virtual->IsDriverMissing();
+        const VirtualControllerError error = m_virtual->Error();
         m_virtual.reset();
         g_ctrl->SetImuEnabled(false);
         g_ctrl->EnableLizardMode();
@@ -84,7 +92,8 @@ void ControllerManager::EnableGameMode() {
             m_hidHide.RevealSteamController();
             m_originalHidden = false;
         }
-        if (missing) m_onStateChanged(m_connected, m_gameModeActive, /*vigemMissing=*/true);
+        if (error != VirtualControllerError::None)
+            m_onStateChanged(m_connected, m_gameModeActive, error);
         return;
     }
 
@@ -92,7 +101,7 @@ void ControllerManager::EnableGameMode() {
     m_trackpad.Reset();
     ApplyTrackpadRuntimeSettings();
     StartReadLoop();
-    m_onStateChanged(m_connected, m_gameModeActive, false);
+    m_onStateChanged(m_connected, m_gameModeActive, VirtualControllerError::None);
 }
 
 void ControllerManager::DisableGameMode() {
@@ -109,7 +118,7 @@ void ControllerManager::DisableGameMode() {
         m_originalHidden = false;
     }
     m_gameModeActive = false;
-    m_onStateChanged(m_connected, m_gameModeActive, false);
+    m_onStateChanged(m_connected, m_gameModeActive, VirtualControllerError::None);
 }
 
 void ControllerManager::SetTrackpadMouseEnabled(bool enabled) {
@@ -376,11 +385,11 @@ void ControllerManager::UpdateTrackpadHaptics(const SteamControllerState& state)
                       m_lastHapticRightPulse, rightStrongPulse);
 }
 
-void ControllerManager::TryOpen() {
+void ControllerManager::TryOpen(uint32_t activeReportTimeoutMs) {
     if (!g_ctrl) g_ctrl = std::make_unique<SteamController>();
-    if (g_ctrl->Open()) {
+    if (g_ctrl->Open(activeReportTimeoutMs)) {
         m_connected = true;
-        m_onStateChanged(m_connected, m_gameModeActive, false);
+        m_onStateChanged(m_connected, m_gameModeActive, VirtualControllerError::None);
     }
 }
 
@@ -398,7 +407,7 @@ void ControllerManager::Close(bool restoreLizard) {
     }
     m_connected      = false;
     m_gameModeActive = false;
-    m_onStateChanged(m_connected, m_gameModeActive, false);
+    m_onStateChanged(m_connected, m_gameModeActive, VirtualControllerError::None);
 }
 
 void ControllerManager::StartReadLoop() {
