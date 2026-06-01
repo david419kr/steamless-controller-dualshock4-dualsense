@@ -244,6 +244,15 @@ void ControllerManager::SetBackButtonMapping(BackButtonId id, BackButtonAction a
     ApplyTrackpadRuntimeSettings();
 }
 
+void ControllerManager::SetDualSenseAudioRumbleThreshold(double threshold) {
+    m_dualSenseAudioRumbleThreshold = std::clamp(
+        threshold,
+        SteamController::DUALSENSE_AUDIO_RUMBLE_THRESHOLD_MIN,
+        SteamController::DUALSENSE_AUDIO_RUMBLE_THRESHOLD_MAX);
+    if (g_ctrl)
+        g_ctrl->SetDualSenseAudioRumbleThreshold(m_dualSenseAudioRumbleThreshold);
+}
+
 void ControllerManager::RevealOriginalControllerNow() {
     if (m_hidHide.RevealSteamControllerNow())
         m_originalHidden = false;
@@ -530,6 +539,7 @@ void ControllerManager::ApplyDualSenseHaptics(const SteamControllerState& state)
 void ControllerManager::TryOpen(uint32_t activeReportTimeoutMs) {
     if (!g_ctrl) g_ctrl = std::make_unique<SteamController>();
     if (g_ctrl->Open(activeReportTimeoutMs)) {
+        g_ctrl->SetDualSenseAudioRumbleThreshold(m_dualSenseAudioRumbleThreshold);
         m_connected = true;
         m_onStateChanged(m_connected, m_gameModeActive, VirtualControllerError::None);
     }

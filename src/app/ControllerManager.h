@@ -41,6 +41,7 @@ public:
     void SetOutputMode(VirtualControllerMode mode);
     void SetHideOriginalControllerEnabled(bool enabled);
     void SetBackButtonMapping(BackButtonId id, BackButtonAction action);
+    void SetDualSenseAudioRumbleThreshold(double threshold);
     void RevealOriginalControllerNow();
 
     bool IsConnected()             const { return m_connected; }
@@ -56,6 +57,7 @@ public:
     BackButtonAction GetBackButtonMapping(BackButtonId id) const { return m_backButtonMappings.Get(id); }
     BackButtonMappings GetBackButtonMappings() const { return m_backButtonMappings; }
     bool HasBackButtonMappings() const { return m_backButtonMappings.AnyAssigned(); }
+    double GetDualSenseAudioRumbleThreshold() const { return m_dualSenseAudioRumbleThreshold; }
 
 private:
     void TryOpen(uint32_t activeReportTimeoutMs = 500);
@@ -106,6 +108,7 @@ private:
     bool                               m_hasDualSenseFeedback = false;
     bool                               m_hideOriginalController = true;
     bool                               m_originalHidden       = false;
+    double                             m_dualSenseAudioRumbleThreshold = 0.62;
     VirtualControllerMode              m_outputMode           = VirtualControllerMode::Xbox360;
     BackButtonMappings                 m_backButtonMappings;
     HidHideController                  m_hidHide;

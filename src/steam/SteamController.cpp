@@ -103,13 +103,17 @@ static uint16_t AudioPulseOnUs(double intensity) {
     return static_cast<uint16_t>(std::clamp<int>(static_cast<int>(std::lround(onUs)), 1100, 6100));
 }
 
-static double AudioBodyRumbleUnit(double energy, double peak, double transient) {
+static double AudioBodyRumbleUnit(double energy, double peak, double transient, double threshold) {
     const double body = ClampUnit(peak * 0.50 + transient * 0.34 + energy * 0.16);
-    static constexpr double kBodyThreshold = 0.62;
-    if (body <= kBodyThreshold)
+    threshold = std::clamp(threshold,
+                           SteamController::DUALSENSE_AUDIO_RUMBLE_THRESHOLD_MIN,
+                           SteamController::DUALSENSE_AUDIO_RUMBLE_THRESHOLD_MAX);
+    if (threshold >= 0.995 || body <= threshold)
         return 0.0;
 
-    const double unit = (body - kBodyThreshold) / (1.0 - kBodyThreshold);
+    const double unit = threshold <= 0.0
+        ? body
+        : (body - threshold) / (1.0 - threshold);
     return ClampUnit(std::pow(unit, 1.35) * 0.46);
 }
 
@@ -653,8 +657,9 @@ void SteamController::SetDualSenseAudioHaptics(const SteamControllerDualSenseAud
 
         // Keep texture on native pulses/ticks, but add body rumble for only
         // the strongest audio-haptic impacts so subtle effects stay clean.
-        const double leftBodyRumble = AudioBodyRumbleUnit(leftEnergy, leftPeak, leftTransient);
-        const double rightBodyRumble = AudioBodyRumbleUnit(rightEnergy, rightPeak, rightTransient);
+        const double threshold = m_dualSenseAudioRumbleThreshold.load(std::memory_order_relaxed);
+        const double leftBodyRumble = AudioBodyRumbleUnit(leftEnergy, leftPeak, leftTransient, threshold);
+        const double rightBodyRumble = AudioBodyRumbleUnit(rightEnergy, rightPeak, rightTransient, threshold);
         m_dualSenseAudioLeft = leftBodyRumble > 0.0
             ? UnitToHapticSpeed(leftBodyRumble, 0x0E00)
             : 0;
@@ -731,6 +736,18 @@ void SteamController::SetDualSenseAudioHaptics(const SteamControllerDualSenseAud
                                       AudioPulseClickGainDb(pulseRightIntensity));
     }
     SendRumbleOutput(frame.left, frame.right);
+}
+
+void SteamController::SetDualSenseAudioRumbleThreshold(double threshold) {
+    m_dualSenseAudioRumbleThreshold.store(
+        std::clamp(threshold,
+                   DUALSENSE_AUDIO_RUMBLE_THRESHOLD_MIN,
+                   DUALSENSE_AUDIO_RUMBLE_THRESHOLD_MAX),
+        std::memory_order_relaxed);
+}
+
+double SteamController::GetDualSenseAudioRumbleThreshold() const {
+    return m_dualSenseAudioRumbleThreshold.load(std::memory_order_relaxed);
 }
 
 void SteamController::ClearDualSenseHaptics() {

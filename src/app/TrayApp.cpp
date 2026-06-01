@@ -1,11 +1,14 @@
 #include "TrayApp.h"
 #include "ControllerManager.h"
 #include "resource.h"
+#include <CommCtrl.h>
 #include <shellapi.h>
 #include <dbt.h>
 #include <winreg.h>
 #include <tlhelp32.h>
+#include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <string>
 #include <thread>
 #include <utility>
@@ -14,10 +17,14 @@ static TrayApp* g_app = nullptr;
 
 static constexpr wchar_t WNDCLASS_NAME[] = L"SteamlessControllerTray";
 static constexpr wchar_t BACKBUTTON_WNDCLASS_NAME[] = L"SteamlessControllerBackButtonMappings";
+static constexpr wchar_t DUALSENSE_SETTINGS_WNDCLASS_NAME[] = L"SteamlessControllerDualSenseSettings";
 static constexpr UINT BACKMAP_L4_ID = 2001;
 static constexpr UINT BACKMAP_L5_ID = 2002;
 static constexpr UINT BACKMAP_R4_ID = 2003;
 static constexpr UINT BACKMAP_R5_ID = 2004;
+static constexpr int DUALSENSE_RUMBLE_THRESHOLD_MIN = 0;
+static constexpr int DUALSENSE_RUMBLE_THRESHOLD_MAX = 100;
+static constexpr int DUALSENSE_RUMBLE_THRESHOLD_DEFAULT = 62;
 
 static bool IsBackButtonComboId(UINT id) {
     return id >= BACKMAP_L4_ID && id <= BACKMAP_R5_ID;
@@ -46,6 +53,20 @@ static bool IsPlayStationOutputMode(VirtualControllerMode mode) {
            mode == VirtualControllerMode::DualSense;
 }
 
+static int ThresholdToSliderPosition(double threshold) {
+    const double clamped = std::clamp(threshold, 0.0, 1.0);
+    return std::clamp<int>(static_cast<int>(std::lround(clamped * 100.0)),
+                           DUALSENSE_RUMBLE_THRESHOLD_MIN,
+                           DUALSENSE_RUMBLE_THRESHOLD_MAX);
+}
+
+static double SliderPositionToThreshold(int position) {
+    const int clamped = std::clamp(position,
+                                   DUALSENSE_RUMBLE_THRESHOLD_MIN,
+                                   DUALSENSE_RUMBLE_THRESHOLD_MAX);
+    return static_cast<double>(clamped) / 100.0;
+}
+
 TrayApp::TrayApp() {
     g_app = this;
 }
@@ -67,6 +88,11 @@ bool TrayApp::Init(HINSTANCE hInstance) {
     m_iconOn    = LoadIconW(hInstance, MAKEINTRESOURCEW(IDI_ICON_ON));
     m_wmTaskbar = RegisterWindowMessageW(L"TaskbarCreated");
 
+    INITCOMMONCONTROLSEX icc{};
+    icc.dwSize = sizeof(icc);
+    icc.dwICC = ICC_BAR_CLASSES;
+    InitCommonControlsEx(&icc);
+
     WNDCLASSEXW wc{};
     wc.cbSize        = sizeof(wc);
     wc.lpfnWndProc   = WndProc;
@@ -82,6 +108,15 @@ bool TrayApp::Init(HINSTANCE hInstance) {
     mappingWc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
     mappingWc.lpszClassName = BACKBUTTON_WNDCLASS_NAME;
     if (!RegisterClassExW(&mappingWc)) return false;
+
+    WNDCLASSEXW dualSenseWc{};
+    dualSenseWc.cbSize        = sizeof(dualSenseWc);
+    dualSenseWc.lpfnWndProc   = WndProc;
+    dualSenseWc.hInstance     = hInstance;
+    dualSenseWc.hCursor       = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512));
+    dualSenseWc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
+    dualSenseWc.lpszClassName = DUALSENSE_SETTINGS_WNDCLASS_NAME;
+    if (!RegisterClassExW(&dualSenseWc)) return false;
 
     // Message-only window — invisible, never shown.
     m_hwnd = CreateWindowExW(0, WNDCLASS_NAME, L"SteamlessController",
@@ -181,17 +216,24 @@ LRESULT TrayApp::HandleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         case IDM_OUTPUT_X360:
             m_controller->SetOutputMode(VirtualControllerMode::Xbox360);
             RefreshBackButtonMappingWindow();
+            RefreshDualSenseSettingsWindow();
             SaveSettings();
             break;
         case IDM_OUTPUT_DS4:
             m_controller->SetOutputMode(VirtualControllerMode::DualShock4);
             RefreshBackButtonMappingWindow();
+            RefreshDualSenseSettingsWindow();
             SaveSettings();
             break;
         case IDM_OUTPUT_DSENSE:
             m_controller->SetOutputMode(VirtualControllerMode::DualSense);
             RefreshBackButtonMappingWindow();
+            RefreshDualSenseSettingsWindow();
             SaveSettings();
+            break;
+        case IDM_DUALSENSE_SETTINGS:
+            if (m_controller->GetOutputMode() == VirtualControllerMode::DualSense)
+                ShowDualSenseSettingsWindow();
             break;
         case IDM_HIDE_ORIGINAL:
             m_controller->SetHideOriginalControllerEnabled(!m_controller->IsHideOriginalControllerEnabled());
@@ -202,6 +244,9 @@ LRESULT TrayApp::HandleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             break;
         case IDM_RESTART_STEAM:
             RestartSteam();
+            break;
+        case IDC_DS_RUMBLE_THRESHOLD_RESET:
+            ResetDualSenseRumbleThreshold();
             break;
         case IDM_STARTUP:
             SetStartupEnabled(!IsStartupEnabled());
@@ -225,8 +270,19 @@ LRESULT TrayApp::HandleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         }
         break;
 
+    case WM_HSCROLL:
+        if (reinterpret_cast<HWND>(lp) == m_dualSenseThresholdSlider) {
+            OnDualSenseRumbleThresholdChanged();
+            return 0;
+        }
+        break;
+
     case WM_CLOSE:
         if (hwnd == m_backButtonHwnd) {
+            DestroyWindow(hwnd);
+            return 0;
+        }
+        if (hwnd == m_dualSenseSettingsHwnd) {
             DestroyWindow(hwnd);
             return 0;
         }
@@ -237,6 +293,13 @@ LRESULT TrayApp::HandleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             m_backButtonHwnd = nullptr;
             for (HWND& combo : m_backButtonCombos)
                 combo = nullptr;
+            return 0;
+        }
+        if (hwnd == m_dualSenseSettingsHwnd) {
+            m_dualSenseSettingsHwnd = nullptr;
+            m_dualSenseThresholdSlider = nullptr;
+            m_dualSenseThresholdValue = nullptr;
+            m_dualSenseThresholdReset = nullptr;
             return 0;
         }
         PostQuitMessage(0);
@@ -545,6 +608,14 @@ void TrayApp::LoadSettings() {
         }
         return BackButtonAction::None;
     };
+    auto readThreshold = [&](const wchar_t* name) -> double {
+        DWORD val = DUALSENSE_RUMBLE_THRESHOLD_DEFAULT, size = sizeof(val);
+        if (RegQueryValueExW(key, name, nullptr, nullptr,
+                             reinterpret_cast<LPBYTE>(&val), &size) == ERROR_SUCCESS) {
+            return SliderPositionToThreshold(static_cast<int>(val));
+        }
+        return SliderPositionToThreshold(DUALSENSE_RUMBLE_THRESHOLD_DEFAULT);
+    };
 
     DWORD outputMode = 0, outputModeSize = sizeof(outputMode);
     if (RegQueryValueExW(key, L"OutputMode", nullptr, nullptr,
@@ -567,6 +638,7 @@ void TrayApp::LoadSettings() {
     m_controller->SetBackButtonMapping(BackButtonId::L5, readAction(L"BackMapL5"));
     m_controller->SetBackButtonMapping(BackButtonId::R4, readAction(L"BackMapR4"));
     m_controller->SetBackButtonMapping(BackButtonId::R5, readAction(L"BackMapR5"));
+    m_controller->SetDualSenseAudioRumbleThreshold(readThreshold(L"DualSenseRumbleThreshold"));
 
     RegCloseKey(key);
 }
@@ -588,6 +660,11 @@ void TrayApp::SaveSettings() {
         RegSetValueExW(key, name, 0, REG_DWORD,
                        reinterpret_cast<const BYTE*>(&dw), sizeof(dw));
     };
+    auto writeThreshold = [&](const wchar_t* name, double threshold) {
+        DWORD dw = static_cast<DWORD>(ThresholdToSliderPosition(threshold));
+        RegSetValueExW(key, name, 0, REG_DWORD,
+                       reinterpret_cast<const BYTE*>(&dw), sizeof(dw));
+    };
 
     writeBool(L"TrackpadMouse",   m_controller->IsTrackpadMouseEnabled());
     writeBool(L"BackButtons",     m_controller->IsBackButtonsEnabled());
@@ -606,6 +683,7 @@ void TrayApp::SaveSettings() {
     writeAction(L"BackMapL5", m_controller->GetBackButtonMapping(BackButtonId::L5));
     writeAction(L"BackMapR4", m_controller->GetBackButtonMapping(BackButtonId::R4));
     writeAction(L"BackMapR5", m_controller->GetBackButtonMapping(BackButtonId::R5));
+    writeThreshold(L"DualSenseRumbleThreshold", m_controller->GetDualSenseAudioRumbleThreshold());
 
     RegCloseKey(key);
 }
@@ -768,6 +846,159 @@ void TrayApp::OnBackButtonMappingChanged(UINT controlId) {
     SaveSettings();
 }
 
+void TrayApp::ShowDualSenseSettingsWindow() {
+    if (m_dualSenseSettingsHwnd) {
+        RefreshDualSenseSettingsWindow();
+        ShowWindow(m_dualSenseSettingsHwnd, SW_SHOWNORMAL);
+        SetForegroundWindow(m_dualSenseSettingsHwnd);
+        return;
+    }
+
+    constexpr DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU;
+    constexpr DWORD exStyle = WS_EX_TOOLWINDOW;
+    RECT rect{0, 0, 430, 220};
+    AdjustWindowRectEx(&rect, style, FALSE, exStyle);
+
+    HWND hwnd = CreateWindowExW(
+        exStyle,
+        DUALSENSE_SETTINGS_WNDCLASS_NAME,
+        L"DualSense Settings",
+        style,
+        CW_USEDEFAULT,
+        CW_USEDEFAULT,
+        rect.right - rect.left,
+        rect.bottom - rect.top,
+        nullptr,
+        nullptr,
+        m_hInstance,
+        nullptr);
+    if (!hwnd)
+        return;
+
+    m_dualSenseSettingsHwnd = hwnd;
+    CreateDualSenseSettingsControls();
+    RefreshDualSenseSettingsWindow();
+    ShowWindow(m_dualSenseSettingsHwnd, SW_SHOWNORMAL);
+    SetForegroundWindow(m_dualSenseSettingsHwnd);
+}
+
+void TrayApp::CreateDualSenseSettingsControls() {
+    if (!m_dualSenseSettingsHwnd)
+        return;
+
+    HFONT font = reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+
+    HWND label = CreateWindowExW(
+        0, L"STATIC", L"Rumble Threshold",
+        WS_CHILD | WS_VISIBLE | SS_LEFT,
+        18, 20, 150, 20,
+        m_dualSenseSettingsHwnd, nullptr, m_hInstance, nullptr);
+    SendMessageW(label, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+
+    m_dualSenseThresholdValue = CreateWindowExW(
+        0, L"STATIC", L"0.62",
+        WS_CHILD | WS_VISIBLE | SS_RIGHT,
+        350, 20, 54, 20,
+        m_dualSenseSettingsHwnd,
+        reinterpret_cast<HMENU>(static_cast<UINT_PTR>(IDC_DS_RUMBLE_THRESHOLD_VALUE)),
+        m_hInstance,
+        nullptr);
+    SendMessageW(m_dualSenseThresholdValue, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+
+    m_dualSenseThresholdSlider = CreateWindowExW(
+        0, TRACKBAR_CLASSW, nullptr,
+        WS_CHILD | WS_VISIBLE | TBS_AUTOTICKS,
+        18, 48, 386, 34,
+        m_dualSenseSettingsHwnd,
+        reinterpret_cast<HMENU>(static_cast<UINT_PTR>(IDC_DS_RUMBLE_THRESHOLD)),
+        m_hInstance,
+        nullptr);
+    SendMessageW(m_dualSenseThresholdSlider, TBM_SETRANGE, TRUE,
+                 MAKELPARAM(DUALSENSE_RUMBLE_THRESHOLD_MIN, DUALSENSE_RUMBLE_THRESHOLD_MAX));
+    SendMessageW(m_dualSenseThresholdSlider, TBM_SETTICFREQ, 10, 0);
+    SendMessageW(m_dualSenseThresholdSlider, TBM_SETPAGESIZE, 0, 5);
+    SendMessageW(m_dualSenseThresholdSlider, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+
+    HWND minLabel = CreateWindowExW(
+        0, L"STATIC", L"0.00",
+        WS_CHILD | WS_VISIBLE | SS_LEFT,
+        18, 78, 48, 18,
+        m_dualSenseSettingsHwnd, nullptr, m_hInstance, nullptr);
+    SendMessageW(minLabel, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+
+    HWND maxLabel = CreateWindowExW(
+        0, L"STATIC", L"1.00",
+        WS_CHILD | WS_VISIBLE | SS_RIGHT,
+        356, 78, 48, 18,
+        m_dualSenseSettingsHwnd, nullptr, m_hInstance, nullptr);
+    SendMessageW(maxLabel, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+
+    HWND description = CreateWindowExW(
+        0,
+        L"STATIC",
+        L"Lower values allow strong haptics to blend into more rumble.\r\n"
+        L"The best value can vary by game. Too high or too low can screw up the haptic experience.\r\n"
+        L"If unsure, use the default value.",
+        WS_CHILD | WS_VISIBLE | SS_LEFT,
+        18, 104, 386, 54,
+        m_dualSenseSettingsHwnd,
+        nullptr,
+        m_hInstance,
+        nullptr);
+    SendMessageW(description, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+
+    m_dualSenseThresholdReset = CreateWindowExW(
+        0, L"BUTTON", L"Reset To Default",
+        WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+        268, 166, 136, 28,
+        m_dualSenseSettingsHwnd,
+        reinterpret_cast<HMENU>(static_cast<UINT_PTR>(IDC_DS_RUMBLE_THRESHOLD_RESET)),
+        m_hInstance,
+        nullptr);
+    SendMessageW(m_dualSenseThresholdReset, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+}
+
+void TrayApp::RefreshDualSenseSettingsWindow() {
+    if (!m_dualSenseSettingsHwnd)
+        return;
+
+    const bool enabled = m_controller->GetOutputMode() == VirtualControllerMode::DualSense;
+    EnableWindow(m_dualSenseThresholdSlider, enabled);
+    EnableWindow(m_dualSenseThresholdReset, enabled);
+
+    const double threshold = m_controller->GetDualSenseAudioRumbleThreshold();
+    const int sliderPos = ThresholdToSliderPosition(threshold);
+    if (m_dualSenseThresholdSlider)
+        SendMessageW(m_dualSenseThresholdSlider, TBM_SETPOS, TRUE, sliderPos);
+
+    if (m_dualSenseThresholdValue) {
+        wchar_t text[32]{};
+        swprintf_s(text, L"%.2f", SliderPositionToThreshold(sliderPos));
+        SetWindowTextW(m_dualSenseThresholdValue, text);
+    }
+}
+
+void TrayApp::OnDualSenseRumbleThresholdChanged() {
+    if (!m_dualSenseThresholdSlider ||
+        m_controller->GetOutputMode() != VirtualControllerMode::DualSense)
+        return;
+
+    const int sliderPos = static_cast<int>(SendMessageW(m_dualSenseThresholdSlider, TBM_GETPOS, 0, 0));
+    m_controller->SetDualSenseAudioRumbleThreshold(SliderPositionToThreshold(sliderPos));
+    RefreshDualSenseSettingsWindow();
+    SaveSettings();
+}
+
+void TrayApp::ResetDualSenseRumbleThreshold() {
+    if (m_controller->GetOutputMode() != VirtualControllerMode::DualSense)
+        return;
+
+    m_controller->SetDualSenseAudioRumbleThreshold(
+        SliderPositionToThreshold(DUALSENSE_RUMBLE_THRESHOLD_DEFAULT));
+    RefreshDualSenseSettingsWindow();
+    SaveSettings();
+}
+
 void TrayApp::ShowContextMenu() {
     bool connected      = m_controller->IsConnected();
     bool gameModeOn     = m_controller->IsGameModeActive();
@@ -788,6 +1019,9 @@ void TrayApp::ShowContextMenu() {
     UINT toggleFlags = MF_STRING | (connected ? MF_ENABLED : MF_GRAYED);
     AppendMenuW(menu, toggleFlags, IDM_TOGGLE,
                 gameModeOn ? L"Disable Steamless Mode" : L"Enable Steamless Mode");
+
+    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(menu, MF_STRING, IDM_RESTART_STEAM, L"Restart Steam");
 
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
 
@@ -832,6 +1066,10 @@ void TrayApp::ShowContextMenu() {
     AppendMenuW(outputMenu,
                 MF_STRING | (outputMode == VirtualControllerMode::DualSense ? MF_CHECKED : MF_UNCHECKED),
                 IDM_OUTPUT_DSENSE, L"DualSense");
+    AppendMenuW(outputMenu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(outputMenu,
+                MF_STRING | (outputMode == VirtualControllerMode::DualSense ? MF_ENABLED : MF_GRAYED),
+                IDM_DUALSENSE_SETTINGS, L"DualSense Settings...");
     AppendMenuW(menu, MF_POPUP | MF_STRING, reinterpret_cast<UINT_PTR>(outputMenu), L"Output Mode");
 
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
@@ -842,8 +1080,6 @@ void TrayApp::ShowContextMenu() {
 
     UINT revealFlags = MF_STRING | (hidHideAvailable ? MF_ENABLED : MF_GRAYED);
     AppendMenuW(menu, revealFlags, IDM_REVEAL_ORIGINAL, L"Reveal Original Now");
-
-    AppendMenuW(menu, MF_STRING, IDM_RESTART_STEAM, L"Restart Steam");
 
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
 

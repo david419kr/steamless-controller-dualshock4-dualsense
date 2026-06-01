@@ -64,6 +64,10 @@ struct SteamControllerDualSenseAudioHaptics {
 
 class SteamController {
 public:
+    static constexpr double DUALSENSE_AUDIO_RUMBLE_THRESHOLD_DEFAULT = 0.62;
+    static constexpr double DUALSENSE_AUDIO_RUMBLE_THRESHOLD_MIN = 0.0;
+    static constexpr double DUALSENSE_AUDIO_RUMBLE_THRESHOLD_MAX = 1.0;
+
     static constexpr uint16_t VALVE_VID        = 0x28DE;
     static constexpr uint16_t SC2026_PID       = 0x1302;  // wired USB
     static constexpr uint16_t SC2026_DONGLE_PID = 0x1304; // wireless dongle ("Steam Controller Puck")
@@ -213,6 +217,8 @@ public:
                              uint8_t leftTriggerPosition,
                              uint8_t rightTriggerPosition);
     void SetDualSenseAudioHaptics(const SteamControllerDualSenseAudioHaptics& haptics);
+    void SetDualSenseAudioRumbleThreshold(double threshold);
+    double GetDualSenseAudioRumbleThreshold() const;
     void ClearDualSenseHaptics();
     void PulseTrackpadHaptic(bool left, bool strongClick);
     void ClearTrackpadHaptics();
@@ -268,6 +274,7 @@ private:
     DualSenseTriggerRuntime m_dualSenseRightTrigger;
     std::array<uint8_t, 11> m_dualSenseLeftTriggerEffect{};
     std::array<uint8_t, 11> m_dualSenseRightTriggerEffect{};
+    std::atomic<double> m_dualSenseAudioRumbleThreshold{DUALSENSE_AUDIO_RUMBLE_THRESHOLD_DEFAULT};
     uint16_t        m_dualSenseAudioLeft = 0;
     uint16_t        m_dualSenseAudioRight = 0;
     std::chrono::steady_clock::time_point m_lastDualSenseAudioAt{};
