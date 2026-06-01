@@ -38,10 +38,11 @@ The Steam Controller 2026 can be used wired or wirelessly through the Puck, and 
 - Virtual controller creation is handled internally by a patched [VIIPER](https://github.com/Alia5/VIIPER) sidecar. Users do not need to run `viiper.exe` manually.
 - When using HidHide with Steam, enable Steamless Mode first, then restart Steam. If Steam is already running, Steam may see both the physical controller and the virtual PlayStation controller at the same time.
 
-<img width="413" height="252" alt="image" src="https://github.com/user-attachments/assets/770f88d3-5fc4-459d-a453-0941e204fa30" />
+<img width="685" height="583" alt="image" src="https://github.com/user-attachments/assets/de920d6d-5e2c-4b37-b3ae-8029708d64e0" />
 <img width="512" height="239" alt="image" src="https://github.com/user-attachments/assets/a7ffceb8-4ac2-4f34-88f3-1833251141af" />
 <img width="342" height="217" alt="image" src="https://github.com/user-attachments/assets/6a95ed72-a9cd-46ff-becc-6bc9d8e5e9b6" />
 <img width="425" height="361" alt="image" src="https://github.com/user-attachments/assets/90992791-e4dd-4156-a173-022f305af0ec" />
+<img width="425" height="361" alt="image" src="https://github.com/user-attachments/assets/778d9b81-bbb7-4633-9d64-029868b37b34" />
 
 ---
 
