@@ -1,30 +1,40 @@
-# SteamlessController VIIPER Backend 포크
+# SteamlessController DualShock 4 / DualSense 지원 포크
 
-이 브랜치는 Steam Controller를 VIIPER 기반 가상 Xbox 360, DualShock 4, 또는 실험적 DualSense 컨트롤러로 노출하는 SteamlessController 포크입니다. 목표는 기존 Xbox 360 동작을 유지하면서, PlayStation 네이티브 입력 경로가 필요한 게임에서 자이로, 터치패드, 진동, 트랙패드 햅틱, DualSense 트리거 햅틱 근사를 사용할 수 있게 하는 것입니다.
+이 브랜치는 Steam Controller를 가상 Xbox 360, DualShock 4, 또는 실험적 DualSense 컨트롤러로 노출하는 SteamlessController 포크입니다. 목표는 기존 Xbox 360 동작을 유지하면서, PlayStation 네이티브 입력 경로가 필요한 게임에서 자이로, 터치패드, 진동, 트랙패드 햅틱, DualShock 4 / DualSense 지원을 사용할 수 있게 하는 것입니다.
 
-## 포크 변경점
+## 릴리즈 설치 방법
 
-- 가상 컨트롤러 백엔드는 패치된 [VIIPER](https://github.com/Alia5/VIIPER) sidecar를 사용합니다.
-- 릴리즈 빌드는 `SteamlessController.exe`와 패치된 `viiper.exe`를 같은 폴더에 함께 배치해야 합니다.
-- Windows에서 VIIPER virtual USB 장치를 OS에 붙이려면 범용 [usbip-win2](https://github.com/vadimgrn/usbip-win2) 드라이버가 필요합니다.
-- Steam에서 사용하려면 [HidHide](https://github.com/nefarius/HidHide/releases/latest)를 설치하세요. Steamless Mode가 켜져 있을 때 실제 Steam Controller/Puck을 숨기고, Steam에는 가상 컨트롤러만 보이도록 하기 위한 용도입니다.
-- HidHide로 Steam에서 사용하려면 Steamless Mode를 먼저 켠 다음 Steam을 재시작하세요. Steam이 이미 켜져 있는 상태에서는 실제 컨트롤러와 가상 PlayStation 컨트롤러가 동시에 인식되어 중복 입력이 발생할 수 있습니다.
-- 앱이 실행되지 않으면 [Microsoft Visual C++ Redistributable 2015-2022 x64](https://aka.ms/vc14/vc_redist.x64.exe)가 필요할 수 있습니다.
-- [최신 릴리즈](https://github.com/david419kr/steamless-controller-dualshock4/releases/latest)에서 앱을 내려받고, `viiper.exe`가 같은 폴더에 있는 상태로 실행하면 됩니다.
-- DualShock 4 또는 DualSense를 지원하는 Steam 게임에서 네이티브 자이로를 사용하려면, Steam 라이브러리에서 해당 게임을 우클릭한 뒤 속성에서 Steam Input을 비활성화해야 할 수 있습니다.
+1. [최신 릴리즈](https://github.com/david419kr/steamless-controller-dualshock4/releases/latest)에서 `SteamlessController-Setup.exe`를 내려받아 설치합니다.
+2. 설치가 끝나면 Windows를 한 번 재부팅합니다.
+3. Steam Controller 2026을 유선 또는 무선 Puck으로 연결합니다.
+4. 트레이 메뉴에서 `Output Mode -> DualShock 4` 또는 `Output Mode -> DualSense`를 선택하고 `Enable Steamless Mode`를 켭니다.
+5. Steam에서 네이티브 PlayStation 컨트롤러 입력으로 쓰려면 Steamless Mode를 켠 뒤 트레이 메뉴의 `Restart Steam`을 실행하세요.
+6. 게임별로 필요하면 Steam 라이브러리의 해당 게임 속성에서 Steam Input을 비활성화합니다.
+
+## 지원 기능
+
 - DualShock 4 모드는 버튼, 스틱, 트리거, 네이티브 자이로/가속도, 터치패드 출력, 진동, Steam Controller 트랙패드 햅틱, 트랙패드 D-pad, L4/L5/R4/R5 백버튼 매핑을 지원합니다.
-- DualSense 모드는 실험적 기능입니다. DualSense USB composite HID + Audio identity, 네이티브 자이로/가속도, 터치패드 출력, compatible rumble, adaptive-trigger output 파싱, USB audio haptics 추출, Steam Controller 햅틱 기반 트리거/오디오 효과 합성을 지원합니다.
 - HidHide와 DualShock 4 모드를 함께 사용하여 Steam에서 **Pragmata**의 네이티브 자이로 조작이 동작하는 것을 확인했습니다.
+- DualSense 모드를 사용하여 **Ratchet & Clank: Rift Apart**와 **Marvel's Spider-Man Remastered**에서 향상된 진동을 best-effort로 테스트했습니다.
 - Steam 외 사용처로 **Cemu**에서도 네이티브 자이로 입력이 동작하는 것을 확인했습니다.
 
-## 간단 사용 순서
+## DualSense 지원
 
-1. `SteamlessController.exe`와 패치된 `viiper.exe`를 같은 폴더에 둡니다.
-2. [usbip-win2](https://github.com/vadimgrn/usbip-win2)를 설치합니다.
-3. Steam에서 네이티브 PlayStation 컨트롤러 입력으로 사용하려면 HidHide를 설치합니다.
-4. 앱을 실행하고 트레이 메뉴에서 `Output Mode -> DualShock 4` 또는 `Output Mode -> DualSense`를 선택합니다.
-5. Steamless Mode를 켠 다음 Steam을 재시작합니다.
-6. 게임별로 필요하면 Steam 라이브러리의 해당 게임 속성에서 Steam Input을 비활성화합니다.
+DualSense 모드는 실험적 기능입니다. Steam Controller 2026을 가상 DualSense 컨트롤러처럼 보이게 만들고, DualSense 네이티브 지원 게임에서 자이로/가속도, 터치패드, 일반 진동, 향상된 진동, 어댑티브 트리거 신호를 최대한 활용하려는 best-effort 구현입니다.
+
+DualSense의 향상된 진동은 실제 DualSense 전용 구동부와 컨트롤러 구조에 맞춰 설계되어 있으므로 Steam Controller에서 물리적으로 완벽히 재현할 수 없습니다. 이 포크는 해당 신호를 받아 Steam Controller의 트랙패드 pulse/click/tick 햅틱과 진동 모터를 조합해 비슷한 느낌을 내려고 시도합니다. 일반 진동과는 다른 색다른 느낌을 받을 수 있지만, 오리지널 PS5 DualSense와 같은 수준을 기대해서는 안 됩니다.
+
+어댑티브 트리거도 Steam Controller에는 물리 저항 장치가 없기 때문에 원본처럼 방아쇠가 실제로 무거워지거나 걸리는 동작은 재현할 수 없습니다. 대신 게임이 보내는 어댑티브 트리거 신호를 읽어 진동 모터와 햅틱으로 어느 정도의 피드백을 주도록 합성합니다.
+
+Steam Controller 2026은 유선 연결과 무선 Puck 연결 모두에서 사용할 수 있으며, 이 포크의 DualSense 모드도 해당 입력을 바탕으로 동작합니다. DualSense 모드의 향상된 진동이 너무 강하거나 약하게 느껴지면 트레이 메뉴의 `Output Mode -> DualSense Settings...`에서 `Rumble Threshold` 값을 조정할 수 있습니다. 잘 모르겠다면 기본값을 사용하는 것을 권장합니다.
+
+## 포함 구성 요소와 기술 메모
+
+- 설치형 릴리즈는 `SteamlessController.exe`, 패치된 `viiper.exe`, Microsoft Visual C++ Redistributable 2015-2022 x64, [usbip-win2](https://github.com/vadimgrn/usbip-win2), 선택 설치용 [HidHide](https://github.com/nefarius/HidHide/releases/latest)를 포함합니다.
+- VC++ runtime과 usbip-win2는 없으면 installer가 자동으로 설치합니다. 사용자가 별도로 내려받아 설치할 필요는 없습니다.
+- HidHide는 선택 항목이지만 기본 체크 상태입니다. Steam에서 실제 Steam Controller/Puck을 숨기고 가상 컨트롤러만 보이게 하려면 설치하는 것을 권장합니다.
+- 가상 컨트롤러 생성은 내부적으로 패치된 [VIIPER](https://github.com/Alia5/VIIPER) sidecar를 사용합니다. 일반 사용자는 `viiper.exe`를 직접 실행할 필요가 없습니다.
+- HidHide를 사용하는 경우 Steamless Mode를 먼저 켠 다음 Steam을 재시작하세요. Steam이 이미 켜져 있는 상태에서는 실제 컨트롤러와 가상 PlayStation 컨트롤러가 동시에 인식되어 중복 입력이 발생할 수 있습니다.
 
 ## 빌드 방법
 
@@ -41,7 +51,7 @@ cmake --build --preset release
 powershell -ExecutionPolicy Bypass -File tools\build-viiper.ps1 -OutputDir build\release\Release
 ```
 
-이 스크립트는 upstream VIIPER `v0.6.1`을 받아 `third_party\viiper-patches\viiper-v0.6.1-ds4-compat.patch`와 `third_party\viiper-patches\viiper-v0.6.1-dualsense.patch`를 적용하고, 서버 버전을 `v0.6.1-steamless5`로 표시한 `viiper.exe`를 빌드합니다. stock `v0.6.1`은 PlayStation 모드에서 의도적으로 거부합니다. 네이티브 자이로/터치패드/트리거/오디오 햅틱 클라이언트가 요구하는 feature report와 descriptor 보강이 없기 때문입니다.
+이 스크립트는 upstream VIIPER `v0.6.1`을 받아 `third_party\viiper-patches\viiper-v0.6.1-ds4-compat.patch`와 `third_party\viiper-patches\viiper-v0.6.1-dualsense.patch`를 적용하고, 서버 버전을 `v0.6.1-steamless5`로 표시한 `viiper.exe`를 빌드합니다. stock `v0.6.1`은 PlayStation 모드에서 의도적으로 거부합니다. 네이티브 자이로/터치패드/트리거/향상된 진동 클라이언트가 요구하는 feature report와 descriptor 보강이 없기 때문입니다.
 
 ## 단일 installer 패키징
 

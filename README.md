@@ -1,23 +1,42 @@
-# SteamlessController VIIPER Backend Fork
+# SteamlessController DualShock 4 / DualSense Support Fork
 
 [한국어 설명](README-fork-KR.md)
 
-This fork turns a Steam Controller into a VIIPER-backed virtual Xbox 360, DualShock 4, or experimental DualSense controller. The main branch goal is parity with the original Xbox 360 behavior plus native PlayStation-controller features for games that support them.
+This fork turns a Steam Controller into a virtual Xbox 360, DualShock 4, or experimental DualSense controller. The main branch goal is parity with the original Xbox 360 behavior plus native PlayStation-controller features for games that support them.
 
-## Fork Notes
+## Release Installer Usage
 
-- Uses a patched [VIIPER](https://github.com/Alia5/VIIPER) sidecar as the virtual controller backend.
-- Release builds should ship `SteamlessController.exe` and the patched `viiper.exe` side by side.
-- Windows requires the generic [usbip-win2](https://github.com/vadimgrn/usbip-win2) driver so VIIPER can attach virtual USB devices to the OS.
-- For Steam usage, install [HidHide](https://github.com/nefarius/HidHide/releases/latest) so SteamlessController can hide the physical Steam Controller/Puck while Steamless Mode is active.
-- When using HidHide with Steam, enable Steamless Mode first, then restart Steam. If Steam is already running, Steam may see both the physical controller and the virtual PlayStation controller at the same time.
-- Might also need [Microsoft Visual C++ Redistributable 2015-2022 x64](https://aka.ms/vc14/vc_redist.x64.exe), if the app does not open.
-- Download the app from the [latest release](https://github.com/david419kr/steamless-controller-dualshock4/releases/latest), keep `viiper.exe` next to it, and run it directly.
-- To use native gyro in Steam games with DualShock 4 or DualSense support, you may need to right-click the game in Steam, open Properties, and disable Steam Input for that game.
+1. Download `SteamlessController-Setup.exe` from the [latest release](https://github.com/david419kr/steamless-controller-dualshock4/releases/latest) and install it.
+2. Reboot Windows once after installation.
+3. Connect the Steam Controller 2026 by USB or through the wireless Puck.
+4. From the tray menu, choose `Output Mode -> DualShock 4` or `Output Mode -> DualSense`, then enable `Steamless Mode`.
+5. For native PlayStation-controller input in Steam, enable Steamless Mode first, then use `Restart Steam` from the tray menu.
+6. If needed per game, right-click the game in Steam, open Properties, and disable Steam Input.
+
+## Supported Features
+
 - DualShock 4 mode supports buttons, sticks, triggers, native gyro/accelerometer output, touchpad output, rumble, Steam Controller trackpad haptics, trackpad D-pad, and L4/L5/R4/R5 back-button mapping.
-- DualSense mode is experimental. It adds DualSense USB composite HID + Audio identity, native gyro/accelerometer output, touchpad output, compatible rumble, adaptive-trigger output parsing, USB audio haptics extraction, and Steam Controller haptic synthesis for DualSense trigger/audio effects.
 - HidHide + DualShock 4 mode has been tested in Steam with native gyro controls working in **Pragmata**.
+- DualSense mode has been tested with best-effort Haptic Feedback in **Ratchet & Clank: Rift Apart** and **Marvel's Spider-Man Remastered**.
 - Native gyro input has also been tested outside Steam in **Cemu**.
+
+## DualSense Support
+
+DualSense mode is experimental. It makes the Steam Controller 2026 appear as a virtual DualSense controller and tries to support native gyro/accelerometer input, touchpad input, standard rumble, Haptic Feedback, and adaptive-trigger signals in games that support DualSense directly.
+
+DualSense Haptic Feedback is designed for the physical DualSense actuator system and controller body, so Steam Controller hardware cannot reproduce it perfectly. This fork uses a best-effort translation layer that maps those signals onto Steam Controller trackpad pulse/click/tick haptics and rumble motors. It can feel different from ordinary rumble, but it should not be expected to match an original PS5 DualSense controller.
+
+Adaptive triggers are also physically impossible to reproduce because the Steam Controller has no trigger-resistance mechanism. The app still receives those trigger-effect signals and tries to approximate their feel with rumble motor and haptic feedback.
+
+The Steam Controller 2026 can be used wired or wirelessly through the Puck, and DualSense mode works from either input path. If DualSense Haptic Feedback feels too strong or too weak, use `Output Mode -> DualSense Settings...` in the tray menu and adjust `Rumble Threshold`. If unsure, keep the default value.
+
+## Included Components And Technical Notes
+
+- Installer releases include `SteamlessController.exe`, the patched `viiper.exe`, Microsoft Visual C++ Redistributable 2015-2022 x64, [usbip-win2](https://github.com/vadimgrn/usbip-win2), and optional [HidHide](https://github.com/nefarius/HidHide/releases/latest).
+- The installer automatically installs VC++ runtime and usbip-win2 when missing. Users do not need to install those manually.
+- HidHide is optional but checked by default. It is recommended for Steam usage so the physical Steam Controller/Puck can be hidden while the virtual controller remains visible.
+- Virtual controller creation is handled internally by a patched [VIIPER](https://github.com/Alia5/VIIPER) sidecar. Users do not need to run `viiper.exe` manually.
+- When using HidHide with Steam, enable Steamless Mode first, then restart Steam. If Steam is already running, Steam may see both the physical controller and the virtual PlayStation controller at the same time.
 
 <img width="413" height="252" alt="image" src="https://github.com/user-attachments/assets/770f88d3-5fc4-459d-a453-0941e204fa30" />
 <img width="512" height="239" alt="image" src="https://github.com/user-attachments/assets/a7ffceb8-4ac2-4f34-88f3-1833251141af" />
@@ -89,7 +108,7 @@ You can also build the patched VIIPER sidecar directly:
 powershell -ExecutionPolicy Bypass -File tools\build-viiper.ps1 -OutputDir build\release\Release
 ```
 
-The script clones upstream VIIPER `v0.6.1`, applies `third_party\viiper-patches\viiper-v0.6.1-ds4-compat.patch` and `third_party\viiper-patches\viiper-v0.6.1-dualsense.patch`, builds `viiper.exe`, and marks it as `v0.6.1-steamless5`. Stock `v0.6.1` is intentionally rejected in PlayStation modes because it does not expose the reports required by native gyro/touch/trigger/audio-haptics clients.
+The script clones upstream VIIPER `v0.6.1`, applies `third_party\viiper-patches\viiper-v0.6.1-ds4-compat.patch` and `third_party\viiper-patches\viiper-v0.6.1-dualsense.patch`, builds `viiper.exe`, and marks it as `v0.6.1-steamless5`. Stock `v0.6.1` is intentionally rejected in PlayStation modes because it does not expose the reports required by native gyro/touch/trigger/Haptic Feedback clients.
 
 ## Bundled Installer
 
