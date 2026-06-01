@@ -472,11 +472,11 @@ index 0000000..9957b97
 +}
 +
 +func scaleAudioEnergy(value uint64) uint16 {
-+	const noiseFloor = 256
++	const noiseFloor = 128
 +	if value <= noiseFloor {
 +		return 0
 +	}
-+	scaled := (value - noiseFloor) * 2
++	scaled := (value - noiseFloor) * 3
 +	if scaled > 0xFFFF {
 +		scaled = 0xFFFF
 +	}
@@ -492,7 +492,12 @@ index 0000000..9957b97
 +	if rightPeak > hapticPeak {
 +		hapticPeak = rightPeak
 +	}
-+	return hapticAvg <= frontAvg*2 && uint64(hapticPeak) <= uint64(frontPeak)*2
++	if hapticAvg <= 48 && hapticPeak <= 256 {
++		return true
++	}
++	return hapticAvg*8 <= frontAvg &&
++		uint64(hapticPeak)*8 <= uint64(frontPeak) &&
++		hapticPeak < 1200
 +}
 +
 +func (d *DualSense) handleAudioClassControl(bRequest uint8, wValue, wLength uint16, data []byte) []byte {
@@ -1346,8 +1351,8 @@ index 0000000..25e6247
 +		base := i * 8
 +		putS16(pcm[base:base+2], 18000)
 +		putS16(pcm[base+2:base+4], -16000)
-+		putS16(pcm[base+4:base+6], 17000)
-+		putS16(pcm[base+6:base+8], -15000)
++		putS16(pcm[base+4:base+6], 60)
++		putS16(pcm[base+6:base+8], -40)
 +	}
 +	dev.HandleIsoTransfer(1, usbip.DirOut, pcm, []usb.IsoPacket{
 +		{Offset: 0, Length: uint32(len(pcm))},

@@ -137,6 +137,7 @@ void ControllerManager::EnableGameMode() {
     {
         std::lock_guard<std::mutex> lock(m_dualSenseFeedbackMutex);
         m_hasDualSenseFeedback = false;
+        m_lastDualSenseFeedbackAt = {};
     }
     m_lastLeftTriggerPosition.store(0, std::memory_order_relaxed);
     m_lastRightTriggerPosition.store(0, std::memory_order_relaxed);
@@ -153,10 +154,13 @@ void ControllerManager::DisableGameMode() {
     m_trackpad.Reset();
     if (g_ctrl)
         g_ctrl->ClearTrackpadHaptics();
+    if (g_ctrl)
+        g_ctrl->ClearDualSenseHaptics();
     m_hasLastImuTimestamp = false;
     {
         std::lock_guard<std::mutex> lock(m_dualSenseFeedbackMutex);
         m_hasDualSenseFeedback = false;
+        m_lastDualSenseFeedbackAt = {};
     }
     m_virtual.reset();
     g_ctrl->SetImuEnabled(false);
@@ -466,12 +470,18 @@ void ControllerManager::HandleVirtualFeedback(const ViiperFeedbackState& feedbac
         g_ctrl->SetDs4EnhancedRumble(feedback.largeMotor, feedback.smallMotor);
     } else if (feedback.mode == VirtualControllerMode::DualSense) {
         if (feedback.isDualSenseAudio) {
+            {
+                std::lock_guard<std::mutex> lock(m_dualSenseFeedbackMutex);
+                if (m_hasDualSenseFeedback)
+                    m_lastDualSenseFeedbackAt = std::chrono::steady_clock::now();
+            }
             g_ctrl->SetDualSenseAudioHaptics(ToSteamAudioHaptics(feedback.dualSenseAudio));
             return;
         }
         {
             std::lock_guard<std::mutex> lock(m_dualSenseFeedbackMutex);
             m_lastDualSenseFeedback = feedback.dualSense;
+            m_lastDualSenseFeedbackAt = std::chrono::steady_clock::now();
             m_hasDualSenseFeedback = true;
         }
         g_ctrl->SetDualSenseHaptics(ToSteamHaptics(feedback.dualSense),
@@ -492,11 +502,24 @@ void ControllerManager::ApplyDualSenseHaptics(const SteamControllerState& state)
     m_lastRightTriggerPosition.store(rightTriggerPosition, std::memory_order_relaxed);
 
     ViiperDualSenseFeedbackState feedback{};
+    bool feedbackStale = false;
     {
         std::lock_guard<std::mutex> lock(m_dualSenseFeedbackMutex);
         if (!m_hasDualSenseFeedback)
             return;
-        feedback = m_lastDualSenseFeedback;
+        const auto now = std::chrono::steady_clock::now();
+        if (now - m_lastDualSenseFeedbackAt > std::chrono::milliseconds(1500)) {
+            m_hasDualSenseFeedback = false;
+            m_lastDualSenseFeedbackAt = {};
+            feedbackStale = true;
+        } else {
+            feedback = m_lastDualSenseFeedback;
+        }
+    }
+
+    if (feedbackStale) {
+        g_ctrl->ClearDualSenseHaptics();
+        return;
     }
 
     g_ctrl->SetDualSenseHaptics(ToSteamHaptics(feedback),

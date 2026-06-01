@@ -73,12 +73,80 @@ static uint16_t UnitToHapticSpeed(double value, uint16_t minimumSpeed) {
     return static_cast<uint16_t>(std::clamp<int>(static_cast<int>(std::lround(speed)), 0, 0xFFFF));
 }
 
+static double AudioValueToUnit(uint16_t value, uint16_t floor) {
+    if (value <= floor)
+        return 0.0;
+    return ClampUnit(static_cast<double>(value - floor) / static_cast<double>(0xFFFFu - floor));
+}
+
+static int16_t AudioPulseGainDb(double intensity) {
+    intensity = std::pow(ClampUnit(intensity), 0.62);
+    const double gain = -30.0 + intensity * 36.0;
+    return static_cast<int16_t>(std::clamp<int>(static_cast<int>(std::lround(gain)), -30, 6));
+}
+
+static int8_t AudioPulseTickGainDb(double intensity) {
+    intensity = std::pow(ClampUnit(intensity), 0.58);
+    const double gain = -28.0 + intensity * 32.0;
+    return static_cast<int8_t>(std::clamp<int>(static_cast<int>(std::lround(gain)), -28, 4));
+}
+
+static int8_t AudioPulseClickGainDb(double intensity) {
+    intensity = std::pow(ClampUnit(intensity), 0.58);
+    const double gain = -8.0 + intensity * 16.0;
+    return static_cast<int8_t>(std::clamp<int>(static_cast<int>(std::lround(gain)), -8, 8));
+}
+
+static uint16_t AudioPulseOnUs(double intensity) {
+    intensity = std::pow(ClampUnit(intensity), 0.78);
+    const double onUs = 1100.0 + intensity * 5000.0;
+    return static_cast<uint16_t>(std::clamp<int>(static_cast<int>(std::lround(onUs)), 1100, 6100));
+}
+
+static double AudioBodyRumbleUnit(double energy, double peak, double transient) {
+    const double body = ClampUnit(peak * 0.50 + transient * 0.34 + energy * 0.16);
+    static constexpr double kBodyThreshold = 0.62;
+    if (body <= kBodyThreshold)
+        return 0.0;
+
+    const double unit = (body - kBodyThreshold) / (1.0 - kBodyThreshold);
+    return ClampUnit(std::pow(unit, 1.35) * 0.46);
+}
+
+static double DualSenseTriggerEngagement(uint8_t triggerPosition) {
+    static constexpr uint8_t kTriggerDeadzone = 16;
+    static constexpr uint8_t kTriggerFullEngage = 72;
+    if (triggerPosition <= kTriggerDeadzone)
+        return 0.0;
+    if (triggerPosition >= kTriggerFullEngage)
+        return 1.0;
+
+    const double unit = static_cast<double>(triggerPosition - kTriggerDeadzone)
+                      / static_cast<double>(kTriggerFullEngage - kTriggerDeadzone);
+    return std::pow(ClampUnit(unit), 0.65);
+}
+
+static bool DualSenseTriggerEffectIsContinuous(uint8_t mode) {
+    // Known automatic/vibration trigger modes. Feedback/weapon/resistance
+    // modes such as 0x21 and 0x25 are positional force curves and should not
+    // keep buzzing once the trigger is held at a fixed depth.
+    return mode == 0x06 || // Simple_Vibration
+           mode == 0x26 || // Vibration
+           mode == 0x27;   // Machine
+}
+
+static constexpr auto DUALSENSE_TRIGGER_TRANSIENT_TAIL = std::chrono::milliseconds(34);
+static constexpr double DUALSENSE_TRIGGER_TRANSIENT_TAIL_SCALE = 0.42;
 static constexpr uint8_t HAPTIC_COMMAND_TICK = 1;
 static constexpr uint8_t HAPTIC_COMMAND_CLICK = 2;
 static constexpr uint16_t TRACKPAD_CLICK_PULSE_US = 5000;
 static constexpr int8_t TRACKPAD_TOUCH_GAIN_DB = -45;
 static constexpr int8_t TRACKPAD_CLICK_COMMAND_GAIN_DB = 9;
 static constexpr int16_t TRACKPAD_CLICK_PULSE_GAIN_DB = 40;
+static constexpr uint8_t DS5_ENABLE_RUMBLE_EMULATION = 0x01;
+static constexpr uint8_t DS5_ENABLE_RIGHT_TRIGGER_EFFECT = 0x04;
+static constexpr uint8_t DS5_ENABLE_LEFT_TRIGGER_EFFECT = 0x08;
+static constexpr uint8_t DS5_ENABLE_IMPROVED_RUMBLE = 0x04;
 static constexpr uint8_t TRACKPAD_HAPTIC_OUTPUT_LEFT = 0x00;
 static constexpr uint8_t TRACKPAD_HAPTIC_OUTPUT_RIGHT = 0x01;
 static constexpr uint8_t TRACKPAD_FEATURE_PAD_LEFT = 0x00;
@@ -353,12 +421,24 @@ uint16_t SteamController::DualSenseTriggerPulseSpeed(const std::array<uint8_t, 1
                                                      DualSenseTriggerRuntime& runtime,
                                                      bool& clickPulse) {
     clickPulse = false;
+    const auto now = std::chrono::steady_clock::now();
 
     const uint8_t mode = effect[0];
     if (mode == 0) {
         if (runtime.active)
             clickPulse = true;
         runtime = {};
+        return 0;
+    }
+
+    const double engagement = DualSenseTriggerEngagement(triggerPosition);
+    if (engagement <= 0.0) {
+        runtime.mode = mode;
+        runtime.region = 0;
+        runtime.position = triggerPosition;
+        runtime.tailSpeed = 0;
+        runtime.tailUntil = {};
+        runtime.active = false;
         return 0;
     }
 
@@ -392,81 +472,124 @@ uint16_t SteamController::DualSenseTriggerPulseSpeed(const std::array<uint8_t, 1
     if (strength == 0)
         strength = 96;
 
+    const bool continuous = DualSenseTriggerEffectIsContinuous(mode);
+    const int pullDelta = static_cast<int>(triggerPosition) - static_cast<int>(runtime.position);
+    const bool pullProgress = pullDelta >= 3;
+    const bool regionProgress = region > runtime.region && pullDelta >= 0;
+
     if (mode != runtime.mode || active != runtime.active ||
-        (active && region != runtime.region && (mode >= 3 || mode >= 0x20))) {
+        (active && region != runtime.region && continuous)) {
         clickPulse = active || runtime.active;
     }
 
+    const bool transientPulse = active &&
+                                !continuous &&
+                                (mode != runtime.mode ||
+                                 !runtime.active ||
+                                 regionProgress ||
+                                 pullProgress);
     runtime.mode = mode;
     runtime.region = region;
+    runtime.position = triggerPosition;
     runtime.active = active;
 
-    if (!active)
+    if (!active) {
+        runtime.tailSpeed = 0;
+        runtime.tailUntil = {};
         return 0;
+    }
 
-    const double unit = std::clamp(static_cast<double>(strength) / 255.0, 0.0, 1.0);
-    return UnitToHapticSpeed(unit, 0x1400);
+    const double unit = std::clamp(static_cast<double>(strength) / 255.0, 0.0, 1.0)
+                      * engagement;
+    const uint16_t speed = UnitToHapticSpeed(unit, 0x1400);
+    if (!continuous && transientPulse) {
+        runtime.tailSpeed = static_cast<uint16_t>(std::clamp<int>(
+            static_cast<int>(std::lround(static_cast<double>(speed) * DUALSENSE_TRIGGER_TRANSIENT_TAIL_SCALE)),
+            0,
+            0xFFFF));
+        runtime.tailUntil = now + DUALSENSE_TRIGGER_TRANSIENT_TAIL;
+        return speed;
+    }
+    if (!continuous && !transientPulse) {
+        if (runtime.tailSpeed != 0 && now < runtime.tailUntil)
+            return runtime.tailSpeed;
+        runtime.tailSpeed = 0;
+        runtime.tailUntil = {};
+        return 0;
+    }
+    return speed;
 }
 
 void SteamController::SetDualSenseHaptics(const SteamControllerDualSenseHaptics& haptics,
                                           uint8_t leftTriggerPosition,
                                           uint8_t rightTriggerPosition) {
-    const double low = MotorByteToUnit(haptics.rumbleLeft);
-    const double high = MotorByteToUnit(haptics.rumbleRight);
-
     bool leftTriggerClick = false;
     bool rightTriggerClick = false;
     RumbleFrame frame{};
+    const auto now = std::chrono::steady_clock::now();
     {
         std::lock_guard<std::mutex> lock(m_rumbleMutex);
 
+        if ((haptics.enableBits1 & DS5_ENABLE_LEFT_TRIGGER_EFFECT) != 0)
+            m_dualSenseLeftTriggerEffect = haptics.leftTriggerEffect;
+        if ((haptics.enableBits1 & DS5_ENABLE_RIGHT_TRIGGER_EFFECT) != 0)
+            m_dualSenseRightTriggerEffect = haptics.rightTriggerEffect;
+
         const uint16_t leftTriggerSpeed = DualSenseTriggerPulseSpeed(
-            haptics.leftTriggerEffect,
+            m_dualSenseLeftTriggerEffect,
             leftTriggerPosition,
             m_dualSenseLeftTrigger,
             leftTriggerClick);
         const uint16_t rightTriggerSpeed = DualSenseTriggerPulseSpeed(
-            haptics.rightTriggerEffect,
+            m_dualSenseRightTriggerEffect,
             rightTriggerPosition,
             m_dualSenseRightTrigger,
             rightTriggerClick);
 
         const double leftTriggerDemand = static_cast<double>(leftTriggerSpeed) / 65535.0;
         const double rightTriggerDemand = static_cast<double>(rightTriggerSpeed) / 65535.0;
-        const double leftDemand = ClampUnit(low * 1.00 + high * 0.28 + leftTriggerDemand * 0.45);
-        const double rightDemand = ClampUnit(low * 0.72 + high * 0.95 + rightTriggerDemand * 0.45);
+        const bool hidRumbleEnabled =
+            (haptics.enableBits1 & DS5_ENABLE_RUMBLE_EMULATION) != 0 ||
+            (haptics.enableBits3 & DS5_ENABLE_IMPROVED_RUMBLE) != 0;
+        const uint8_t rumbleLeft = hidRumbleEnabled ? haptics.rumbleLeft : 0;
+        const uint8_t rumbleRight = hidRumbleEnabled ? haptics.rumbleRight : 0;
+        const double low = MotorByteToUnit(rumbleLeft);
+        const double high = MotorByteToUnit(rumbleRight);
+        const double leftDemand = ClampUnit(low * 1.00 + high * 0.28 + leftTriggerDemand * 0.90);
+        const double rightDemand = ClampUnit(low * 0.72 + high * 0.95 + rightTriggerDemand * 0.90);
 
         m_rumbleBaseLeft = UnitToHapticSpeed(leftDemand, 0x1000);
         m_rumbleBaseRight = UnitToHapticSpeed(rightDemand, 0x1000);
 
         const int leftRise = m_hasDualSenseRumbleState
-            ? static_cast<int>(haptics.rumbleLeft) - static_cast<int>(m_lastDualSenseLeftRumble)
-            : static_cast<int>(haptics.rumbleLeft);
+            ? static_cast<int>(rumbleLeft) - static_cast<int>(m_lastDualSenseLeftRumble)
+            : static_cast<int>(rumbleLeft);
         const int rightRise = m_hasDualSenseRumbleState
-            ? static_cast<int>(haptics.rumbleRight) - static_cast<int>(m_lastDualSenseRightRumble)
-            : static_cast<int>(haptics.rumbleRight);
-        m_lastDualSenseLeftRumble = haptics.rumbleLeft;
-        m_lastDualSenseRightRumble = haptics.rumbleRight;
+            ? static_cast<int>(rumbleRight) - static_cast<int>(m_lastDualSenseRightRumble)
+            : static_cast<int>(rumbleRight);
+        m_lastDualSenseLeftRumble = rumbleLeft;
+        m_lastDualSenseRightRumble = rumbleRight;
         m_hasDualSenseRumbleState = true;
 
         int strongestRise = leftRise > rightRise ? leftRise : rightRise;
         if (strongestRise < 0)
             strongestRise = 0;
+
         if (strongestRise > 16 || leftTriggerClick || rightTriggerClick) {
             const double punch = ClampUnit(static_cast<double>(strongestRise) / 255.0 + 0.18);
             const uint16_t boostedLeft = UnitToHapticSpeed(leftDemand + punch * 0.45, 0x2200);
             const uint16_t boostedRight = UnitToHapticSpeed(rightDemand + punch * 0.45, 0x2200);
             m_rumbleBoostLeft = m_rumbleBaseLeft > boostedLeft ? m_rumbleBaseLeft : boostedLeft;
             m_rumbleBoostRight = m_rumbleBaseRight > boostedRight ? m_rumbleBaseRight : boostedRight;
-            m_rumbleBoostUntil = std::chrono::steady_clock::now() + std::chrono::milliseconds(45);
+            m_rumbleBoostUntil = now + std::chrono::milliseconds(45);
         } else if (m_rumbleBaseLeft == 0 && m_rumbleBaseRight == 0) {
             m_rumbleBoostLeft = 0;
             m_rumbleBoostRight = 0;
             m_rumbleBoostUntil = {};
         }
 
-        m_lastRumbleSent = std::chrono::steady_clock::now();
-        frame = CurrentRumbleFrameLocked(m_lastRumbleSent);
+        m_lastRumbleSent = now;
+        frame = CurrentRumbleFrameLocked(now);
     }
 
     if (leftTriggerClick)
@@ -477,9 +600,9 @@ void SteamController::SetDualSenseHaptics(const SteamControllerDualSenseHaptics&
 }
 
 void SteamController::SetDualSenseAudioHaptics(const SteamControllerDualSenseAudioHaptics& haptics) {
-    constexpr uint16_t kAudioHapticEnergyDeadzone = 1200;
-    constexpr uint16_t kAudioHapticPeakDeadzone = 2200;
-    constexpr uint16_t kAudioHapticTransientDeadzone = 1800;
+    constexpr uint16_t kAudioHapticEnergyDeadzone = 500;
+    constexpr uint16_t kAudioHapticPeakDeadzone = 700;
+    constexpr uint16_t kAudioHapticTransientDeadzone = 250;
 
     const bool leftSilent = haptics.leftEnergy < kAudioHapticEnergyDeadzone &&
                             haptics.leftPeak < kAudioHapticPeakDeadzone &&
@@ -494,11 +617,11 @@ void SteamController::SetDualSenseAudioHaptics(const SteamControllerDualSenseAud
         {
             std::lock_guard<std::mutex> lock(m_rumbleMutex);
             hadAudio = m_dualSenseAudioLeft != 0 || m_dualSenseAudioRight != 0;
+            m_lastDualSenseAudioAt = now;
             if (!hadAudio)
                 return;
             m_dualSenseAudioLeft = 0;
             m_dualSenseAudioRight = 0;
-            m_lastDualSenseAudioAt = now;
             frame = CurrentRumbleFrameLocked(now);
             m_lastRumbleSent = now;
         }
@@ -506,56 +629,132 @@ void SteamController::SetDualSenseAudioHaptics(const SteamControllerDualSenseAud
         return;
     }
 
-    const double leftEnergy = ClampUnit(static_cast<double>(haptics.leftEnergy) / 65535.0);
-    const double rightEnergy = ClampUnit(static_cast<double>(haptics.rightEnergy) / 65535.0);
-    const double leftPeak = ClampUnit(static_cast<double>(haptics.leftPeak) / 65535.0);
-    const double rightPeak = ClampUnit(static_cast<double>(haptics.rightPeak) / 65535.0);
+    const double leftEnergy = AudioValueToUnit(haptics.leftEnergy, kAudioHapticEnergyDeadzone);
+    const double rightEnergy = AudioValueToUnit(haptics.rightEnergy, kAudioHapticEnergyDeadzone);
+    const double leftPeak = AudioValueToUnit(haptics.leftPeak, kAudioHapticPeakDeadzone);
+    const double rightPeak = AudioValueToUnit(haptics.rightPeak, kAudioHapticPeakDeadzone);
+    const double leftTransient = AudioValueToUnit(haptics.leftTransient, kAudioHapticTransientDeadzone);
+    const double rightTransient = AudioValueToUnit(haptics.rightTransient, kAudioHapticTransientDeadzone);
+
+    const double leftTexture = ClampUnit(leftEnergy * 0.60 + leftPeak * 0.25 + leftTransient * 0.15);
+    const double rightTexture = ClampUnit(rightEnergy * 0.60 + rightPeak * 0.25 + rightTransient * 0.15);
+    const double leftImpact = ClampUnit(leftTransient * 0.78 + leftPeak * 0.22);
+    const double rightImpact = ClampUnit(rightTransient * 0.78 + rightPeak * 0.22);
+
     const auto now = std::chrono::steady_clock::now();
 
     bool pulseLeft = false;
     bool pulseRight = false;
+    double pulseLeftIntensity = 0.0;
+    double pulseRightIntensity = 0.0;
     RumbleFrame frame{};
     {
         std::lock_guard<std::mutex> lock(m_rumbleMutex);
 
-        const double leftDemand = ClampUnit(leftEnergy * 0.95 + leftPeak * 0.20);
-        const double rightDemand = ClampUnit(rightEnergy * 0.95 + rightPeak * 0.20);
-        m_dualSenseAudioLeft = UnitToHapticSpeed(leftDemand, 0x0C00);
-        m_dualSenseAudioRight = UnitToHapticSpeed(rightDemand, 0x0C00);
+        // Keep texture on native pulses/ticks, but add body rumble for only
+        // the strongest audio-haptic impacts so subtle effects stay clean.
+        const double leftBodyRumble = AudioBodyRumbleUnit(leftEnergy, leftPeak, leftTransient);
+        const double rightBodyRumble = AudioBodyRumbleUnit(rightEnergy, rightPeak, rightTransient);
+        m_dualSenseAudioLeft = leftBodyRumble > 0.0
+            ? UnitToHapticSpeed(leftBodyRumble, 0x0E00)
+            : 0;
+        m_dualSenseAudioRight = rightBodyRumble > 0.0
+            ? UnitToHapticSpeed(rightBodyRumble, 0x0E00)
+            : 0;
         m_lastDualSenseAudioAt = now;
 
-        const bool leftTransient =
-            haptics.leftTransient > 2600 || haptics.leftPeak > 28000;
-        const bool rightTransient =
-            haptics.rightTransient > 2600 || haptics.rightPeak > 28000;
-        if (leftTransient && now - m_lastDualSenseAudioLeftPulse >= std::chrono::milliseconds(22)) {
+        pulseLeftIntensity = ClampUnit(std::pow(leftImpact, 0.55) * 0.68
+                                     + std::pow(leftPeak, 0.68) * 0.20
+                                     + std::pow(leftTexture, 0.82) * 0.12);
+        pulseRightIntensity = ClampUnit(std::pow(rightImpact, 0.55) * 0.68
+                                      + std::pow(rightPeak, 0.68) * 0.20
+                                      + std::pow(rightTexture, 0.82) * 0.12);
+        const bool leftPulseCandidate = pulseLeftIntensity > 0.018 || leftPeak > 0.020 || leftEnergy > 0.025;
+        const bool rightPulseCandidate = pulseRightIntensity > 0.018 || rightPeak > 0.020 || rightEnergy > 0.025;
+        const auto leftInterval = pulseLeftIntensity > 0.52
+            ? std::chrono::milliseconds(22)
+            : (pulseLeftIntensity > 0.12 ? std::chrono::milliseconds(44) : std::chrono::milliseconds(78));
+        const auto rightInterval = pulseRightIntensity > 0.52
+            ? std::chrono::milliseconds(22)
+            : (pulseRightIntensity > 0.12 ? std::chrono::milliseconds(44) : std::chrono::milliseconds(78));
+        if (leftPulseCandidate && now - m_lastDualSenseAudioLeftPulse >= leftInterval) {
             pulseLeft = true;
             m_lastDualSenseAudioLeftPulse = now;
         }
-        if (rightTransient && now - m_lastDualSenseAudioRightPulse >= std::chrono::milliseconds(22)) {
+        if (rightPulseCandidate && now - m_lastDualSenseAudioRightPulse >= rightInterval) {
             pulseRight = true;
             m_lastDualSenseAudioRightPulse = now;
-        }
-
-        if (leftTransient || rightTransient) {
-            const uint16_t boostLeft = UnitToHapticSpeed(ClampUnit(leftDemand + 0.28), 0x2200);
-            const uint16_t boostRight = UnitToHapticSpeed(ClampUnit(rightDemand + 0.28), 0x2200);
-            if (boostLeft > m_rumbleBoostLeft)
-                m_rumbleBoostLeft = boostLeft;
-            if (boostRight > m_rumbleBoostRight)
-                m_rumbleBoostRight = boostRight;
-            m_rumbleBoostUntil = now + std::chrono::milliseconds(35);
         }
 
         m_lastRumbleSent = now;
         frame = CurrentRumbleFrameLocked(now);
     }
 
-    if (pulseLeft)
-        PulseTrackpadHaptic(true, false);
-    if (pulseRight)
-        PulseTrackpadHaptic(false, false);
+    if (pulseLeft) {
+        SendTrackpadPulseOutput(TRACKPAD_HAPTIC_OUTPUT_LEFT,
+                                AudioPulseOnUs(pulseLeftIntensity),
+                                0,
+                                1,
+                                AudioPulseGainDb(pulseLeftIntensity));
+        SendTrackpadCommandOutput(TRACKPAD_HAPTIC_OUTPUT_LEFT,
+                                  HAPTIC_COMMAND_TICK,
+                                  AudioPulseTickGainDb(pulseLeftIntensity));
+        if (pulseLeftIntensity > 0.50)
+            SendTrackpadFeaturePulse(TRACKPAD_FEATURE_PAD_LEFT,
+                                     AudioPulseOnUs(pulseLeftIntensity),
+                                     0,
+                                     1,
+                                     AudioPulseGainDb(pulseLeftIntensity));
+        if (pulseLeftIntensity > 0.58)
+            SendTrackpadCommandOutput(TRACKPAD_HAPTIC_OUTPUT_LEFT,
+                                      HAPTIC_COMMAND_CLICK,
+                                      AudioPulseClickGainDb(pulseLeftIntensity));
+    }
+    if (pulseRight) {
+        SendTrackpadPulseOutput(TRACKPAD_HAPTIC_OUTPUT_RIGHT,
+                                AudioPulseOnUs(pulseRightIntensity),
+                                0,
+                                1,
+                                AudioPulseGainDb(pulseRightIntensity));
+        SendTrackpadCommandOutput(TRACKPAD_HAPTIC_OUTPUT_RIGHT,
+                                  HAPTIC_COMMAND_TICK,
+                                  AudioPulseTickGainDb(pulseRightIntensity));
+        if (pulseRightIntensity > 0.50)
+            SendTrackpadFeaturePulse(TRACKPAD_FEATURE_PAD_RIGHT,
+                                     AudioPulseOnUs(pulseRightIntensity),
+                                     0,
+                                     1,
+                                     AudioPulseGainDb(pulseRightIntensity));
+        if (pulseRightIntensity > 0.58)
+            SendTrackpadCommandOutput(TRACKPAD_HAPTIC_OUTPUT_RIGHT,
+                                      HAPTIC_COMMAND_CLICK,
+                                      AudioPulseClickGainDb(pulseRightIntensity));
+    }
     SendRumbleOutput(frame.left, frame.right);
+}
+
+void SteamController::ClearDualSenseHaptics() {
+    const auto now = std::chrono::steady_clock::now();
+    {
+        std::lock_guard<std::mutex> lock(m_rumbleMutex);
+        m_rumbleBaseLeft = 0;
+        m_rumbleBaseRight = 0;
+        m_rumbleBoostLeft = 0;
+        m_rumbleBoostRight = 0;
+        m_rumbleBoostUntil = {};
+        m_dualSenseAudioLeft = 0;
+        m_dualSenseAudioRight = 0;
+        m_lastDualSenseLeftRumble = 0;
+        m_lastDualSenseRightRumble = 0;
+        m_hasDualSenseRumbleState = false;
+        m_dualSenseLeftTrigger = {};
+        m_dualSenseRightTrigger = {};
+        m_dualSenseLeftTriggerEffect.fill(0);
+        m_dualSenseRightTriggerEffect.fill(0);
+        m_lastDualSenseAudioAt = {};
+        m_lastRumbleSent = now;
+    }
+    SendRumbleOutput(0, 0);
 }
 
 SteamController::RumbleFrame SteamController::CurrentRumbleFrameLocked(std::chrono::steady_clock::time_point now) const {

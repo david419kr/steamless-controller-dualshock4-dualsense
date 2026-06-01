@@ -102,6 +102,7 @@ private:
     std::atomic<uint8_t>               m_lastRightTriggerPosition{0};
     std::mutex                         m_dualSenseFeedbackMutex;
     ViiperDualSenseFeedbackState       m_lastDualSenseFeedback;
+    std::chrono::steady_clock::time_point m_lastDualSenseFeedbackAt{};
     bool                               m_hasDualSenseFeedback = false;
     bool                               m_hideOriginalController = true;
     bool                               m_originalHidden       = false;
