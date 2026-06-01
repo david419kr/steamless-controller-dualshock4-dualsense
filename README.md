@@ -130,8 +130,6 @@ cmake --preset release
 cmake --build --preset installer
 ```
 
-For this test branch, when SteamlessController starts the bundled VIIPER sidecar, VIIPER writes `SteamlessController-viiper.log` and `SteamlessController-viiper-raw.log` to the Desktop when possible, falling back to `%LOCALAPPDATA%\SteamlessController`. The raw log is intentionally verbose and should be disabled again before a normal release.
-
 ## CMake Targets
 
 | Target | Description |

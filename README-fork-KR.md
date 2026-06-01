@@ -72,8 +72,6 @@ cmake --preset release
 cmake --build --preset installer
 ```
 
-이 테스트 브랜치에서는 SteamlessController가 bundled VIIPER sidecar를 자동 실행할 때 `SteamlessController-viiper.log`와 `SteamlessController-viiper-raw.log`를 가능하면 바탕화면에 기록하고, 실패하면 `%LOCALAPPDATA%\SteamlessController`로 fallback합니다. raw log는 의도적으로 매우 커질 수 있으므로 일반 릴리즈 전에는 기본 비활성화해야 합니다.
-
 ## 필요한 개발 도구
 
 - Visual Studio 2022, Desktop development with C++ workload

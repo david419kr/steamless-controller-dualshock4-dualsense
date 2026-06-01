@@ -175,71 +175,7 @@ std::wstring QuoteCommandLineArg(const std::wstring& arg) {
     return quoted;
 }
 
-bool DirectoryExists(const std::wstring& path) {
-    const DWORD attr = GetFileAttributesW(path.c_str());
-    return attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_DIRECTORY) != 0;
-}
-
-std::wstring GetKnownDesktopDirectory() {
-    using SHGetKnownFolderPathFn = HRESULT(WINAPI*)(const GUID&, DWORD, HANDLE, PWSTR*);
-    using CoTaskMemFreeFn = void(WINAPI*)(LPVOID);
-
-    HMODULE shell32 = GetModuleHandleW(L"shell32.dll");
-    if (!shell32)
-        shell32 = LoadLibraryW(L"shell32.dll");
-    HMODULE ole32 = GetModuleHandleW(L"ole32.dll");
-    if (!ole32)
-        ole32 = LoadLibraryW(L"ole32.dll");
-    if (!shell32 || !ole32)
-        return {};
-
-    const auto shGetKnownFolderPath =
-        reinterpret_cast<SHGetKnownFolderPathFn>(GetProcAddress(shell32, "SHGetKnownFolderPath"));
-    const auto coTaskMemFree =
-        reinterpret_cast<CoTaskMemFreeFn>(GetProcAddress(ole32, "CoTaskMemFree"));
-    if (!shGetKnownFolderPath || !coTaskMemFree)
-        return {};
-
-    const GUID desktopFolderId =
-        {0xB4BFCC3A, 0xDB2C, 0x424C, {0xB0, 0x29, 0x7F, 0xE9, 0x9A, 0x87, 0xC6, 0x41}};
-    PWSTR path = nullptr;
-    const HRESULT hr = shGetKnownFolderPath(desktopFolderId, 0, nullptr, &path);
-    if (FAILED(hr) || !path)
-        return {};
-
-    std::wstring result(path);
-    coTaskMemFree(path);
-    return result;
-}
-
-std::wstring BuildDesktopLogPath(const wchar_t* fileName) {
-    const std::wstring knownDesktop = GetKnownDesktopDirectory();
-    if (!knownDesktop.empty() && DirectoryExists(knownDesktop))
-        return knownDesktop + L"\\" + fileName;
-
-    std::wstring desktop;
-    const std::wstring userProfile = GetEnvironmentValue(L"USERPROFILE");
-    if (!userProfile.empty()) {
-        desktop = userProfile + L"\\Desktop";
-        if (DirectoryExists(desktop))
-            return desktop + L"\\" + fileName;
-    }
-
-    const std::wstring oneDrive = GetEnvironmentValue(L"OneDrive");
-    if (!oneDrive.empty()) {
-        desktop = oneDrive + L"\\Desktop";
-        if (DirectoryExists(desktop))
-            return desktop + L"\\" + fileName;
-    }
-
-    return {};
-}
-
 std::wstring BuildWritableViiperLogPath(const wchar_t* fileName) {
-    const std::wstring desktopLog = BuildDesktopLogPath(fileName);
-    if (!desktopLog.empty())
-        return desktopLog;
-
     std::wstring base = GetEnvironmentValue(L"LOCALAPPDATA");
     if (base.empty()) {
         std::vector<wchar_t> tempPath(MAX_PATH);
@@ -626,12 +562,9 @@ bool ViiperClient::SpawnBundledServer() {
     }
 
     std::wstring command = QuoteCommandLineArg(viiperPath) + L" server --update-notify none";
-    const std::wstring logPath = BuildWritableViiperLogPath(L"SteamlessController-viiper.log");
+    const std::wstring logPath = BuildWritableViiperLogPath(L"viiper.log");
     if (!logPath.empty())
         command += L" " + QuoteCommandLineArg(L"--log.file=" + logPath);
-    const std::wstring rawLogPath = BuildWritableViiperLogPath(L"SteamlessController-viiper-raw.log");
-    if (!rawLogPath.empty())
-        command += L" " + QuoteCommandLineArg(L"--log.raw-file=" + rawLogPath);
     std::vector<wchar_t> commandLine(command.begin(), command.end());
     commandLine.push_back(L'\0');
 
