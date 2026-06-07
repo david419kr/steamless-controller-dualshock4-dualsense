@@ -398,7 +398,8 @@ bool IsViiperDualShock4CompatibleVersion(const std::string& version) {
                    [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     return lower.find("steamless3") != std::string::npos ||
            lower.find("steamless4") != std::string::npos ||
-           lower.find("steamless5") != std::string::npos;
+           lower.find("steamless5") != std::string::npos ||
+           lower.find("steamless6") != std::string::npos;
 }
 
 bool IsViiperDualSenseCompatibleVersion(const std::string& version) {
@@ -418,7 +419,8 @@ bool IsViiperDualSenseCompatibleVersion(const std::string& version) {
     std::string lower = version;
     std::transform(lower.begin(), lower.end(), lower.begin(),
                    [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    return lower.find("steamless5") != std::string::npos;
+    return lower.find("steamless5") != std::string::npos ||
+           lower.find("steamless6") != std::string::npos;
 }
 
 ViiperClient::~ViiperClient() {

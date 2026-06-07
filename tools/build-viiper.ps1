@@ -3,7 +3,7 @@ param(
     [string]$SourceDir,
     [string]$RepoUrl = "https://github.com/Alia5/VIIPER.git",
     [string]$UpstreamTag = "v0.6.1",
-    [string]$SteamlessVersion = "v0.6.1-steamless5"
+    [string]$SteamlessVersion = "v0.6.1-steamless6"
 )
 
 Set-StrictMode -Version Latest

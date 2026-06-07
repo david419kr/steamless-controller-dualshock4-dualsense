@@ -91,7 +91,7 @@ new file mode 100644
 index 0000000..9957b97
 --- /dev/null
 +++ b/device/dualsense/device.go
-@@ -0,0 +1,915 @@
+@@ -0,0 +1,920 @@
 +package dualsense
 +
 +import (
@@ -1619,18 +1619,19 @@ index 9e57d75..95d5bcc 100644
  	_ "github.com/Alia5/VIIPER/device/keyboard"
  	_ "github.com/Alia5/VIIPER/device/mouse"
 diff --git a/internal/server/usb/server.go b/internal/server/usb/server.go
-index 24da95d..decf410 100644
+index 24da95d..988b784 100644
 --- a/internal/server/usb/server.go
 +++ b/internal/server/usb/server.go
-@@ -33,6 +33,7 @@ type batchingWriter struct {
+@@ -33,6 +33,8 @@ type batchingWriter struct {
  
  const (
  	retSubmitHeaderSize = 0x30
 +	nonIsoPacketCount   = 0xFFFFFFFF
++	isoOutSubmitDelay   = 2 * time.Millisecond
  
  	// avoid windows socket overhead while keeping latency very low.
  	writeBatcherBufferSize   = 256 * 1024
-@@ -125,6 +126,8 @@ const (
+@@ -125,6 +127,8 @@ const (
  	usbReqSetDescriptor    = 0x07
  	usbReqGetConfiguration = 0x08
  	usbReqSetConfiguration = 0x09
@@ -1639,7 +1640,7 @@ index 24da95d..decf410 100644
  
  	// USB descriptor types
  	usbDescTypeDevice        = 0x01
-@@ -134,9 +137,10 @@ const (
+@@ -134,9 +138,10 @@ const (
  	usbDescTypeHIDReport     = 0x22
  
  	// USB request types (bmRequestType)
@@ -1653,7 +1654,7 @@ index 24da95d..decf410 100644
  
  	// USB configuration values
  	usbConfigValueDefault   = 1
-@@ -144,16 +148,19 @@ const (
+@@ -144,16 +149,19 @@ const (
  	usbConfigMaxPower100mA  = 50 // In units of 2mA
  
  	// URB header field offsets
@@ -1683,7 +1684,7 @@ index 24da95d..decf410 100644
  
  	// Standard header peek size
  	headerPeekSize = 8
-@@ -436,16 +443,10 @@ func (s *Server) handleDevList(conn net.Conn) error {
+@@ -436,16 +444,10 @@ func (s *Server) handleDevList(conn net.Conn) error {
  			BDeviceProtocol:     desc.Device.BDeviceProtocol,
  			BConfigurationValue: usbConfigValueDefault,
  			BNumConfigurations:  desc.Device.BNumConfigurations,
@@ -1702,7 +1703,7 @@ index 24da95d..decf410 100644
  		_ = exp.WriteDevlist(&buf)
  	}
  	if _, err := conn.Write(buf.Bytes()); err != nil {
-@@ -492,14 +493,7 @@ func (s *Server) handleImport(conn net.Conn, first8 []byte) (usb.Device, error)
+@@ -492,14 +494,7 @@ func (s *Server) handleImport(conn net.Conn, first8 []byte) (usb.Device, error)
  		BDeviceProtocol:     chosenDesc.Device.BDeviceProtocol,
  		BConfigurationValue: usbConfigValueDefault,
  		BNumConfigurations:  chosenDesc.Device.BNumConfigurations,
@@ -1718,7 +1719,7 @@ index 24da95d..decf410 100644
  	}
  	_ = exp.WriteImport(&buf)
  	if _, err := conn.Write(buf.Bytes()); err != nil {
-@@ -519,6 +513,31 @@ func (s *Server) getAllDeviceMetas() []virtualbus.DeviceMeta {
+@@ -519,6 +514,31 @@ func (s *Server) getAllDeviceMetas() []virtualbus.DeviceMeta {
  	return out
  }
  
@@ -1750,7 +1751,110 @@ index 24da95d..decf410 100644
  type readBufferConn struct {
  	net.Conn
  	buf []byte
-@@ -647,6 +666,9 @@ func (s *Server) handleUrbStream(conn net.Conn, dev usb.Device) error {
+@@ -566,6 +586,82 @@ func (s *Server) handleUrbStream(conn net.Conn, dev usb.Device) error {
+ 	} else {
+ 		writer = conn
+ 	}
++	var writerMu sync.Mutex
++
++	writeRetSubmit := func(ret usbip.RetSubmit, respData []byte, respIsoPackets []usbip.IsoPacketDescriptor) error {
++		var out bytes.Buffer
++		out.Grow(retSubmitHeaderSize)
++		if err := ret.Write(&out); err != nil {
++			return fmt.Errorf("build RET_SUBMIT header: %w", err)
++		}
++		writerMu.Lock()
++		defer writerMu.Unlock()
++		if _, err := writer.Write(out.Bytes()); err != nil {
++			return fmt.Errorf("write RET_SUBMIT: %w", err)
++		}
++		if len(respData) > 0 {
++			if _, err := writer.Write(respData); err != nil {
++				return fmt.Errorf("write RET_SUBMIT payload: %w", err)
++			}
++		}
++		for i := range respIsoPackets {
++			if err := respIsoPackets[i].Write(writer); err != nil {
++				return fmt.Errorf("write RET_SUBMIT ISO packet descriptor: %w", err)
++			}
++		}
++		return nil
++	}
++
++	writeRetUnlink := func(ret usbip.RetUnlink) error {
++		writerMu.Lock()
++		defer writerMu.Unlock()
++		return ret.Write(writer)
++	}
++
++	type pendingIsoOutSubmit struct {
++		ret usbip.RetSubmit
++		iso []usbip.IsoPacketDescriptor
++		t   *time.Timer
++	}
++	var pendingMu sync.Mutex
++	pendingIsoOut := map[uint32]*pendingIsoOutSubmit{}
++	defer func() {
++		pendingMu.Lock()
++		defer pendingMu.Unlock()
++		for _, pending := range pendingIsoOut {
++			if pending.t != nil {
++				pending.t.Stop()
++			}
++		}
++		pendingIsoOut = nil
++	}()
++
++	scheduleIsoOutSubmit := func(seq uint32, ret usbip.RetSubmit, respIsoPackets []usbip.IsoPacketDescriptor) {
++		pending := &pendingIsoOutSubmit{
++			ret: ret,
++			iso: append([]usbip.IsoPacketDescriptor(nil), respIsoPackets...),
++		}
++		pendingMu.Lock()
++		pendingIsoOut[seq] = pending
++		pendingMu.Unlock()
++		pending.t = time.AfterFunc(isoOutSubmitDelay, func() {
++			pendingMu.Lock()
++			if pendingIsoOut == nil {
++				pendingMu.Unlock()
++				return
++			}
++			current, ok := pendingIsoOut[seq]
++			if !ok || current != pending {
++				pendingMu.Unlock()
++				return
++			}
++			delete(pendingIsoOut, seq)
++			pendingMu.Unlock()
++			if err := writeRetSubmit(pending.ret, nil, pending.iso); err != nil && !isClientDisconnect(err) {
++				s.logger.Error("failed to write delayed ISO OUT RET_SUBMIT", "seq", seq, "error", err)
++			}
++		})
++	}
+ 
+ 	var owningBus *virtualbus.VirtualBus
+ 	for _, b := range s.busses {
+@@ -637,9 +733,18 @@ func (s *Server) handleUrbStream(conn net.Conn, dev usb.Device) error {
+ 		if cmd == usbip.CmdUnlinkCode {
+ 			unlinkSeq := binary.BigEndian.Uint32(hdr[urbHdrOffsetUnlink : urbHdrOffsetUnlink+4])
+ 			s.logger.Debug("USBIP_CMD_UNLINK", "seq", seq, "unlink", unlinkSeq)
++			pendingMu.Lock()
++			if pending, ok := pendingIsoOut[unlinkSeq]; ok {
++				delete(pendingIsoOut, unlinkSeq)
++				if pending.t != nil {
++					pending.t.Stop()
++				}
++				s.logger.Debug("suppressed delayed ISO OUT RET_SUBMIT after unlink", "seq", seq, "unlink", unlinkSeq)
++			}
++			pendingMu.Unlock()
+ 			// Reply with -ECONNRESET
+ 			ret := usbip.RetUnlink{Basic: usbip.HeaderBasic{Command: usbip.RetUnlinkCode, Seqnum: seq, Devid: 0, Dir: 0, Ep: 0}, Status: errConnReset}
+-			_ = ret.Write(writer)
++			_ = writeRetUnlink(ret)
+ 			continue
+ 		}
+ 		if cmd != usbip.CmdSubmitCode {
+@@ -647,6 +752,9 @@ func (s *Server) handleUrbStream(conn net.Conn, dev usb.Device) error {
  		}
  		xferFlags := binary.BigEndian.Uint32(hdr[urbHdrOffsetFlags : urbHdrOffsetFlags+4])
  		xferLen := binary.BigEndian.Uint32(hdr[urbHdrOffsetLength : urbHdrOffsetLength+4])
@@ -1760,7 +1864,7 @@ index 24da95d..decf410 100644
  		setup := hdr[urbHdrOffsetSetup:urbHdrSize]
  
  		var outPayload []byte
-@@ -657,7 +679,19 @@ func (s *Server) handleUrbStream(conn net.Conn, dev usb.Device) error {
+@@ -657,7 +765,19 @@ func (s *Server) handleUrbStream(conn net.Conn, dev usb.Device) error {
  			}
  		}
  
@@ -1781,7 +1885,7 @@ index 24da95d..decf410 100644
  
  		actualLen := uint32(len(respData))
  		if dir == usbip.DirOut {
-@@ -668,8 +702,8 @@ func (s *Server) handleUrbStream(conn net.Conn, dev usb.Device) error {
+@@ -668,22 +788,14 @@ func (s *Server) handleUrbStream(conn net.Conn, dev usb.Device) error {
  			Basic:           usbip.HeaderBasic{Command: usbip.RetSubmitCode, Seqnum: seq, Devid: 0, Dir: 0, Ep: 0},
  			Status:          0,
  			ActualLength:    actualLen,
@@ -1791,20 +1895,26 @@ index 24da95d..decf410 100644
 +			NumberOfPackets: uint32(len(respIsoPackets)),
  			ErrorCount:      0,
  		}
- 		var out bytes.Buffer
-@@ -685,6 +719,11 @@ func (s *Server) handleUrbStream(conn net.Conn, dev usb.Device) error {
- 				return fmt.Errorf("write RET_SUBMIT payload: %w", err)
- 			}
+-		var out bytes.Buffer
+-		out.Grow(retSubmitHeaderSize)
+-		if err := ret.Write(&out); err != nil {
+-			return fmt.Errorf("build RET_SUBMIT header: %w", err)
+-		}
+-		if _, err := writer.Write(out.Bytes()); err != nil {
+-			return fmt.Errorf("write RET_SUBMIT: %w", err)
+-		}
+-		if len(respData) > 0 {
+-			if _, err := writer.Write(respData); err != nil {
+-				return fmt.Errorf("write RET_SUBMIT payload: %w", err)
+-			}
++		if isIsoTransfer && dir == usbip.DirOut && len(respIsoPackets) > 0 {
++			scheduleIsoOutSubmit(seq, ret, respIsoPackets)
++		} else if err := writeRetSubmit(ret, respData, respIsoPackets); err != nil {
++			return err
  		}
-+		for i := range respIsoPackets {
-+			if err := respIsoPackets[i].Write(writer); err != nil {
-+				return fmt.Errorf("write RET_SUBMIT ISO packet descriptor: %w", err)
-+			}
-+		}
  		_ = xferFlags
  		_ = devid
- 	}
-@@ -717,12 +756,65 @@ func isClientDisconnect(err error) bool {
+@@ -717,12 +829,65 @@ func isClientDisconnect(err error) bool {
  	return false
  }
  
@@ -1873,7 +1983,7 @@ index 24da95d..decf410 100644
  	}
  	bm := setup[0]
  	breq := setup[1]
-@@ -731,16 +823,19 @@ func (s *Server) processSubmit(dev usb.Device, ep uint32, dir uint32, setup []by
+@@ -731,16 +896,19 @@ func (s *Server) processSubmit(dev usb.Device, ep uint32, dir uint32, setup []by
  	wLength := binary.LittleEndian.Uint16(setup[6:8])
  
  	if breq == usbReqGetStatus {
@@ -1897,7 +2007,7 @@ index 24da95d..decf410 100644
  	}
  
  	desc := dev.GetDescriptor()
-@@ -760,33 +855,33 @@ func (s *Server) processSubmit(dev usb.Device, ep uint32, dir uint32, setup []by
+@@ -760,33 +928,33 @@ func (s *Server) processSubmit(dev usb.Device, ep uint32, dir uint32, setup []by
  			}
  		}
  		if len(data) == 0 {
@@ -1938,7 +2048,7 @@ index 24da95d..decf410 100644
  					}
  					data = []byte(d)
  				}
-@@ -801,38 +896,46 @@ func (s *Server) processSubmit(dev usb.Device, ep uint32, dir uint32, setup []by
+@@ -801,38 +969,46 @@ func (s *Server) processSubmit(dev usb.Device, ep uint32, dir uint32, setup []by
  			}
  		}
  		if len(data) == 0 {
@@ -1995,7 +2105,7 @@ index 24da95d..decf410 100644
  	}
  	h.Write(&b)
  	for _, iface := range desc.Interfaces {
-@@ -851,6 +954,9 @@ func (s *Server) buildConfigDescriptor(desc *usb.Descriptor) []byte {
+@@ -851,6 +1027,9 @@ func (s *Server) buildConfigDescriptor(desc *usb.Descriptor) []byte {
  		}
  		for _, ep := range iface.Endpoints {
  			ep.Write(&b)
@@ -2137,3 +2247,146 @@ index 6f85bed..fd46604 100644
  // CmdUnlink and RetUnlink
  type CmdUnlink struct {
  	Basic        HeaderBasic
+diff --git a/internal/server/api/autoattach_windows.go b/internal/server/api/autoattach_windows.go
+index 4c433c2..7ea31d1 100644
+--- a/internal/server/api/autoattach_windows.go
++++ b/internal/server/api/autoattach_windows.go
+@@ -53,8 +53,8 @@ const (
+ 	niMaxServ = 32
+ )
+ 
+-// PLUGIN_HARDWARE structure from usbip-win2
+-type attachIOCTL struct {
++// PLUGIN_HARDWARE structure from usbip-win2 <= v0.9.7.7.
++type attachIOCTLLegacy struct {
+ 	Size       uint32
+ 	PortOutput int32
+ 	BusID      [32]byte
+@@ -62,6 +62,12 @@ type attachIOCTL struct {
+ 	Host       [niMaxHost]byte
+ }
+ 
++// PLUGIN_HARDWARE structure from newer usbip-win2 master builds.
++type attachIOCTL struct {
++	attachIOCTLLegacy
++	Serial [16]byte
++}
++
+ const (
+ 	fileDeviceUnknown   = 0x00000022
+ 	methodBuffered      = 0
+@@ -93,21 +99,8 @@ func attachViaIOCTL(ctx context.Context, deviceExportMeta *usbip.ExportMeta, usb
+ 
+ 	logger.Debug("Found usbip-win2 device", "path", devicePath)
+ 
+-	var ioctlData attachIOCTL
+-	ioctlData.Size = uint32(unsafe.Sizeof(ioctlData))
+-
+ 	busID := fmt.Sprintf("%d-%d", deviceExportMeta.BusId, deviceExportMeta.DevId)
+-	if len(busID) >= len(ioctlData.BusID) {
+-		return fmt.Errorf("ArgumentValidation: bus ID too long: %s", busID)
+-	}
+-	copy(ioctlData.BusID[:], busID)
+-
+ 	service := fmt.Sprintf("%d", usbipServerPort)
+-	if len(service) >= len(ioctlData.Service) {
+-		return fmt.Errorf("ArgumentValidation: service string too long: %s", service)
+-	}
+-	copy(ioctlData.Service[:], service)
+-	copy(ioctlData.Host[:], "localhost")
+ 
+ 	devicePathUTF16, err := windows.UTF16PtrFromString(devicePath)
+ 	if err != nil {
+@@ -130,35 +123,76 @@ func attachViaIOCTL(ctx context.Context, deviceExportMeta *usbip.ExportMeta, usb
+ 
+ 	logger.Debug("Opened device handle")
+ 
+-	var bytesReturned uint32
+-	err = windows.DeviceIoControl(
+-		handle,
+-		ioctlPluginHardware,
+-		(*byte)(unsafe.Pointer(&ioctlData)),
+-		uint32(unsafe.Sizeof(ioctlData)),
+-		(*byte)(unsafe.Pointer(&ioctlData)),
+-		uint32(unsafe.Sizeof(ioctlData)),
+-		&bytesReturned,
+-		nil,
+-	)
++	var ioctlData attachIOCTL
++	if err := prepareAttachIOCTL(&ioctlData.attachIOCTLLegacy, uint32(unsafe.Sizeof(ioctlData)), busID, service); err != nil {
++		return err
++	}
++
++	bytesReturned, err := callAttachIOCTL(handle, unsafe.Pointer(&ioctlData), uint32(unsafe.Sizeof(ioctlData)))
++	portOutput := ioctlData.PortOutput
+ 	if err != nil {
+-		return fmt.Errorf("IOControl: DeviceIoControl failed: %w", err)
++		logger.Warn("Native IOCTL attach with current usbip-win2 ABI failed; retrying legacy ABI",
++			"error", err,
++			"currentSize", uint32(unsafe.Sizeof(ioctlData)))
++
++		var legacyData attachIOCTLLegacy
++		if legacyErr := prepareAttachIOCTL(&legacyData, uint32(unsafe.Sizeof(legacyData)), busID, service); legacyErr != nil {
++			return legacyErr
++		}
++
++		bytesReturned, err = callAttachIOCTL(handle, unsafe.Pointer(&legacyData), uint32(unsafe.Sizeof(legacyData)))
++		portOutput = legacyData.PortOutput
++		if err != nil {
++			return fmt.Errorf("IOControl: DeviceIoControl failed with current and legacy usbip-win2 ABI: %w", err)
++		}
+ 	}
+ 
+-	logger.Debug("IOCTL completed", "bytesReturned", bytesReturned, "portOutput", ioctlData.PortOutput)
++	logger.Debug("IOCTL completed", "bytesReturned", bytesReturned, "portOutput", portOutput)
+ 
+-	if ioctlData.PortOutput <= 0 {
+-		return fmt.Errorf("ResponseValidation: invalid USB port returned: %d", ioctlData.PortOutput)
++	if portOutput <= 0 {
++		return fmt.Errorf("ResponseValidation: invalid USB port returned: %d", portOutput)
+ 	}
+ 
+ 	logger.Info("Successfully attached device via IOCTL",
+ 		"busID", deviceExportMeta.BusId,
+ 		"deviceID", deviceExportMeta.DevId,
+-		"usbPort", ioctlData.PortOutput)
++		"usbPort", portOutput)
+ 
+ 	return nil
+ }
+ 
++func prepareAttachIOCTL(ioctlData *attachIOCTLLegacy, structSize uint32, busID string, service string) error {
++	ioctlData.Size = structSize
++
++	if len(busID) >= len(ioctlData.BusID) {
++		return fmt.Errorf("ArgumentValidation: bus ID too long: %s", busID)
++	}
++	copy(ioctlData.BusID[:], busID)
++
++	if len(service) >= len(ioctlData.Service) {
++		return fmt.Errorf("ArgumentValidation: service string too long: %s", service)
++	}
++	copy(ioctlData.Service[:], service)
++	copy(ioctlData.Host[:], "localhost")
++
++	return nil
++}
++
++func callAttachIOCTL(handle windows.Handle, ioctlData unsafe.Pointer, ioctlSize uint32) (uint32, error) {
++	var bytesReturned uint32
++	err := windows.DeviceIoControl(
++		handle,
++		ioctlPluginHardware,
++		(*byte)(ioctlData),
++		ioctlSize,
++		(*byte)(ioctlData),
++		ioctlSize,
++		&bytesReturned,
++		nil,
++	)
++	return bytesReturned, err
++}
++
+ func attachViaCommand(ctx context.Context, deviceExportMeta *usbip.ExportMeta, usbipServerPort uint16, logger *slog.Logger) error {
+ 	logger.Info("Auto-attaching localhost client", "busID", deviceExportMeta.BusId, "deviceID", deviceExportMeta.DevId)
+ 
