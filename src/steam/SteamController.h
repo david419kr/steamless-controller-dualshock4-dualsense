@@ -64,7 +64,7 @@ struct SteamControllerDualSenseAudioHaptics {
 
 class SteamController {
 public:
-    static constexpr double DUALSENSE_AUDIO_RUMBLE_THRESHOLD_DEFAULT = 0.62;
+    static constexpr double DUALSENSE_AUDIO_RUMBLE_THRESHOLD_DEFAULT = 0.45;
     static constexpr double DUALSENSE_AUDIO_RUMBLE_THRESHOLD_MIN = 0.0;
     static constexpr double DUALSENSE_AUDIO_RUMBLE_THRESHOLD_MAX = 1.0;
 

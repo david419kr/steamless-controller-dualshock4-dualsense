@@ -108,7 +108,7 @@ private:
     bool                               m_hasDualSenseFeedback = false;
     bool                               m_hideOriginalController = true;
     bool                               m_originalHidden       = false;
-    double                             m_dualSenseAudioRumbleThreshold = 0.62;
+    double                             m_dualSenseAudioRumbleThreshold = 0.45;
     VirtualControllerMode              m_outputMode           = VirtualControllerMode::Xbox360;
     BackButtonMappings                 m_backButtonMappings;
     HidHideController                  m_hidHide;

@@ -24,7 +24,7 @@ static constexpr UINT BACKMAP_R4_ID = 2003;
 static constexpr UINT BACKMAP_R5_ID = 2004;
 static constexpr int DUALSENSE_RUMBLE_THRESHOLD_MIN = 0;
 static constexpr int DUALSENSE_RUMBLE_THRESHOLD_MAX = 100;
-static constexpr int DUALSENSE_RUMBLE_THRESHOLD_DEFAULT = 62;
+static constexpr int DUALSENSE_RUMBLE_THRESHOLD_DEFAULT = 45;
 
 static bool IsBackButtonComboId(UINT id) {
     return id >= BACKMAP_L4_ID && id <= BACKMAP_R5_ID;
