@@ -24,3 +24,5 @@ CMakeUserPresets.json
 .vs/
 *.user
 *.suo
+
+*.md
