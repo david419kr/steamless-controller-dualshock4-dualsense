@@ -41,6 +41,7 @@ public:
     void SetOutputMode(VirtualControllerMode mode);
     void SetHideOriginalControllerEnabled(bool enabled);
     void SetBackButtonMapping(BackButtonId id, BackButtonAction action);
+    void SetBackButtonMappingsFromSettings(const BackButtonMappings& mappings, bool hasSavedMappings);
     void SetDualSenseAudioRumbleThreshold(double threshold);
     void RevealOriginalControllerNow();
 
@@ -73,6 +74,7 @@ private:
     bool IsTrackpadDpadActive() const;
     bool ShouldTrackpadDpadLockMouse() const;
     bool ShouldLinkTrackpadSidesForXbox() const;
+    void ApplyDefaultBackButtonMappingsForMode();
     void LinkDpadToMouseSideForXbox();
     void LinkMouseToDpadSideForXbox();
 
@@ -108,6 +110,7 @@ private:
     bool                               m_hasDualSenseFeedback = false;
     bool                               m_hideOriginalController = true;
     bool                               m_originalHidden       = false;
+    bool                               m_hasSavedBackButtonMappings = false;
     double                             m_dualSenseAudioRumbleThreshold = 0.45;
     VirtualControllerMode              m_outputMode           = VirtualControllerMode::Xbox360;
     BackButtonMappings                 m_backButtonMappings;

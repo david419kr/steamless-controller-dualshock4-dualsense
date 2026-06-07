@@ -19,7 +19,8 @@ static uint8_t TriggerToByte(int16_t raw) {
 
 static bool IsMotionOutputMode(VirtualControllerMode mode) {
     return mode == VirtualControllerMode::DualShock4 ||
-           mode == VirtualControllerMode::DualSense;
+           mode == VirtualControllerMode::DualSense ||
+           mode == VirtualControllerMode::Switch2Pro;
 }
 
 static SteamControllerDualSenseHaptics ToSteamHaptics(const ViiperDualSenseFeedbackState& feedback) {
@@ -44,6 +45,16 @@ static SteamControllerDualSenseAudioHaptics ToSteamAudioHaptics(
     haptics.rightPeak = feedback.rightPeak;
     haptics.leftTransient = feedback.leftTransient;
     haptics.rightTransient = feedback.rightTransient;
+    return haptics;
+}
+
+static SteamControllerSwitch2ProHaptics ToSteamSwitch2ProHaptics(
+    const ViiperSwitch2ProFeedbackState& feedback) {
+    SteamControllerSwitch2ProHaptics haptics{};
+    haptics.leftRumble = feedback.leftRumble;
+    haptics.rightRumble = feedback.rightRumble;
+    haptics.flags = feedback.flags;
+    haptics.playerLedMask = feedback.playerLedMask;
     return haptics;
 }
 
@@ -212,6 +223,7 @@ void ControllerManager::SetOutputMode(VirtualControllerMode mode) {
         DisableGameMode();
 
     m_outputMode = mode;
+    ApplyDefaultBackButtonMappingsForMode();
     LinkMouseToDpadSideForXbox();
 
     if (restart)
@@ -240,7 +252,16 @@ void ControllerManager::SetBackButtonMapping(BackButtonId id, BackButtonAction a
     if (m_backButtonMappings.Get(id) == action)
         return;
 
+    m_hasSavedBackButtonMappings = true;
     m_backButtonMappings.Set(id, action);
+    ApplyTrackpadRuntimeSettings();
+}
+
+void ControllerManager::SetBackButtonMappingsFromSettings(const BackButtonMappings& mappings,
+                                                          bool hasSavedMappings) {
+    m_hasSavedBackButtonMappings = hasSavedMappings;
+    m_backButtonMappings = mappings;
+    ApplyDefaultBackButtonMappingsForMode();
     ApplyTrackpadRuntimeSettings();
 }
 
@@ -270,6 +291,17 @@ bool ControllerManager::ShouldLinkTrackpadSidesForXbox() const {
     return m_outputMode == VirtualControllerMode::Xbox360 &&
            m_trackpadMouseEnabled &&
            m_trackpadDpadEnabled;
+}
+
+void ControllerManager::ApplyDefaultBackButtonMappingsForMode() {
+    if (m_outputMode != VirtualControllerMode::Switch2Pro ||
+        m_hasSavedBackButtonMappings ||
+        m_backButtonMappings.AnyAssigned()) {
+        return;
+    }
+
+    m_backButtonMappings.Set(BackButtonId::L4, BackButtonAction::GL);
+    m_backButtonMappings.Set(BackButtonId::R4, BackButtonAction::GR);
 }
 
 void ControllerManager::LinkDpadToMouseSideForXbox() {
@@ -496,6 +528,8 @@ void ControllerManager::HandleVirtualFeedback(const ViiperFeedbackState& feedbac
         g_ctrl->SetDualSenseHaptics(ToSteamHaptics(feedback.dualSense),
                                     m_lastLeftTriggerPosition.load(std::memory_order_relaxed),
                                     m_lastRightTriggerPosition.load(std::memory_order_relaxed));
+    } else if (feedback.mode == VirtualControllerMode::Switch2Pro) {
+        g_ctrl->SetSwitch2ProHaptics(ToSteamSwitch2ProHaptics(feedback.switch2Pro));
     } else {
         g_ctrl->SetRumble(feedback.largeMotor, feedback.smallMotor);
     }

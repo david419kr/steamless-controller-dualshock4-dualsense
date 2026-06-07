@@ -28,6 +28,8 @@ enum class BackButtonAction : uint8_t {
     Back,
     Start,
     Guide,
+    GL,
+    GR,
 };
 
 struct BackButtonMappings {

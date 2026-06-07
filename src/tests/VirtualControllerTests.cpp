@@ -81,8 +81,18 @@ void TestViiperRequestHelpers() {
            "Steamless4 VIIPER v0.6.1 lacks DualSense audio haptics");
     Expect(IsViiperDualSenseCompatibleVersion("0.6.1-steamless5"),
            "Steamless5 VIIPER v0.6.1 is DualSense-compatible");
+    Expect(IsViiperDualSenseCompatibleVersion("0.6.1-steamless7"),
+           "Steamless7 VIIPER v0.6.1 remains DualSense-compatible");
     Expect(IsViiperDualSenseCompatibleVersion("v0.6.2"),
            "Future VIIPER versions are treated as DualSense-compatible");
+    Expect(!IsViiperSwitch2ProCompatibleVersion("v0.6.1"),
+           "Stock VIIPER v0.6.1 is not Switch 2 Pro-compatible");
+    Expect(!IsViiperSwitch2ProCompatibleVersion("0.6.1-steamless6"),
+           "Steamless6 VIIPER v0.6.1 lacks Switch 2 Pro support");
+    Expect(IsViiperSwitch2ProCompatibleVersion("0.6.1-steamless7"),
+           "Steamless7 VIIPER v0.6.1 is Switch 2 Pro-compatible");
+    Expect(IsViiperSwitch2ProCompatibleVersion("v0.7.0"),
+           "Upstream VIIPER v0.7.0 is treated as Switch 2 Pro-compatible");
 
     uint32_t busId = 0;
     std::string devId;
@@ -310,6 +320,91 @@ void TestDualSenseTouchSuppressionAndBackButtons() {
     Expect((input.buttons & 0x0001) != 0, "DualSense back button can map to PS");
 }
 
+void TestSwitch2ProMapping() {
+    SteamControllerState state{};
+    SetButtons(state,
+               SteamController::BTN_A | SteamController::BTN_B |
+                   SteamController::BTN_X | SteamController::BTN_Y |
+                   SteamController::BTN_MENU,
+               SteamController::BTN_VIEW | SteamController::BTN_LS |
+                   SteamController::BTN_RB,
+               SteamController::BTN_LB | SteamController::BTN_STEAM |
+                   SteamController::BTN_TP_RT_CLICK,
+               0);
+    state.leftTrigger = 32767;
+    state.rightTrigger = 16384;
+    state.leftStickX = 0;
+    state.leftStickY = 0;
+    state.rightStickX = 32767;
+    state.rightStickY = -32768;
+    state.hasImu = true;
+    state.gyroX = 11;
+    state.gyroY = 22;
+    state.gyroZ = 33;
+    state.accelX = 44;
+    state.accelY = 55;
+    state.accelZ = 66;
+
+    VirtualControllerRuntimeSettings settings{};
+    settings.backButtonMappings.Set(BackButtonId::L4, BackButtonAction::GL);
+    settings.backButtonMappings.Set(BackButtonId::R4, BackButtonAction::GR);
+
+    ViiperSwitch2ProInputState input = BuildViiperSwitch2ProInput(state, settings);
+    ExpectEq(input.buttons,
+             (1u << 0) | (1u << 1) | (1u << 2) | (1u << 3) |
+                 (1u << 4) | (1u << 5) |
+                 (1u << 12) | (1u << 13) | (1u << 14) |
+                 (1u << 15) | (1u << 16) | (1u << 17) |
+                 (1u << 20),
+             "Switch 2 Pro base button mapping");
+    ExpectEq(input.leftStickX, 2048, "Switch 2 Pro neutral LX");
+    ExpectEq(input.leftStickY, 2048, "Switch 2 Pro neutral LY");
+    ExpectEq(input.rightStickX, 4095, "Switch 2 Pro max RX");
+    ExpectEq(input.rightStickY, 4095, "Switch 2 Pro inverted min RY");
+    Expect(input.gyroX == 11 && input.gyroY == 33 && input.gyroZ == -22,
+           "Switch 2 Pro gyro axis mapping");
+    Expect(input.accelX == 44 && input.accelY == 66 && input.accelZ == -55,
+           "Switch 2 Pro accel axis mapping");
+
+    const auto serialized = input.Serialize();
+    ExpectEq(serialized[0], input.buttons & 0xFF, "Switch 2 Pro serialize buttons low");
+    ExpectEq(serialized[4], input.leftStickX & 0xFF, "Switch 2 Pro serialize LX");
+    ExpectEq(serialized[18], 11, "Switch 2 Pro serialize gyro X");
+
+    settings.trackpadMouseEnabled = true;
+    settings.useLeftTrackpadForMouse = false;
+    input = BuildViiperSwitch2ProInput(state, settings);
+    Expect((input.buttons & (1u << 20)) == 0,
+           "Switch 2 Pro C button is suppressed while right trackpad is mouse");
+}
+
+void TestSwitch2ProTrackpadDpadAndBackButtons() {
+    SteamControllerState state{};
+    SetButtons(state,
+               0,
+               SteamController::BTN_DPAD_UP | SteamController::BTN_R5,
+               SteamController::BTN_L4,
+               SteamController::BTN_TP_LT_CLICK);
+    state.leftPadX = -20000;
+    state.leftPadY = 0;
+
+    VirtualControllerRuntimeSettings settings{};
+    settings.trackpadDpadEnabled = true;
+    settings.useRightTrackpadForDpad = false;
+    settings.backButtonMappings.Set(BackButtonId::L4, BackButtonAction::GL);
+    settings.backButtonMappings.Set(BackButtonId::R5, BackButtonAction::GR);
+
+    const ViiperSwitch2ProInputState input = BuildViiperSwitch2ProInput(state, settings);
+    Expect((input.buttons & (1u << 11)) == 0,
+           "Switch 2 Pro trackpad D-pad overrides physical up");
+    Expect((input.buttons & (1u << 10)) != 0,
+           "Switch 2 Pro left trackpad maps to D-pad left");
+    Expect((input.buttons & (1u << 19)) != 0,
+           "Switch 2 Pro L4 maps to GL");
+    Expect((input.buttons & (1u << 18)) != 0,
+           "Switch 2 Pro R5 can map to GR");
+}
+
 ViiperDualShock4InputState BuildLeftTrackpadDpadDs4(int16_t x, int16_t y) {
     SteamControllerState state{};
     SetButtons(state, 0, 0, 0, SteamController::BTN_TP_LT_CLICK);
@@ -414,6 +509,23 @@ void TestFeedbackDecoding() {
     ExpectEq(audio.rightPeak, 0xCDEF, "DualSense audio right peak");
     ExpectEq(audio.leftTransient, 0x2211, "DualSense audio left transient");
     ExpectEq(audio.rightTransient, 0x4433, "DualSense audio right transient");
+
+    uint8_t ns2[34] = {};
+    ns2[0] = 0x10;
+    ns2[15] = 0x20;
+    ns2[16] = 0x30;
+    ns2[31] = 0x40;
+    ns2[32] = 0x01;
+    ns2[33] = 0x0F;
+    ViiperSwitch2ProFeedbackState switch2{};
+    Expect(DecodeViiperSwitch2ProFeedback(ns2, sizeof(ns2), switch2),
+           "Switch 2 Pro feedback decode");
+    ExpectEq(switch2.leftRumble[0], 0x10, "Switch 2 Pro left rumble head");
+    ExpectEq(switch2.leftRumble[15], 0x20, "Switch 2 Pro left rumble tail");
+    ExpectEq(switch2.rightRumble[0], 0x30, "Switch 2 Pro right rumble head");
+    ExpectEq(switch2.rightRumble[15], 0x40, "Switch 2 Pro right rumble tail");
+    ExpectEq(switch2.flags, 0x01, "Switch 2 Pro feedback flags");
+    ExpectEq(switch2.playerLedMask, 0x0F, "Switch 2 Pro player LED mask");
 }
 
 } // namespace
@@ -426,6 +538,8 @@ int main() {
     TestDualShock4TouchSuppressionAndBackButtons();
     TestDualSenseMapping();
     TestDualSenseTouchSuppressionAndBackButtons();
+    TestSwitch2ProMapping();
+    TestSwitch2ProTrackpadDpadAndBackButtons();
     TestTrackpadDpadSectorWidths();
     TestFeedbackDecoding();
 

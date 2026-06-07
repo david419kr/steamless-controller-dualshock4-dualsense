@@ -45,12 +45,40 @@ static size_t BackButtonIndex(BackButtonId id) {
 }
 
 static bool IsValidBackButtonAction(DWORD value) {
-    return value <= static_cast<DWORD>(BackButtonAction::Guide);
+    return value <= static_cast<DWORD>(BackButtonAction::GR);
+}
+
+static const wchar_t* BackButtonMappingPrefixForMode(VirtualControllerMode mode) {
+    return mode == VirtualControllerMode::Switch2Pro ? L"SwitchBackMap" : L"BackMap";
+}
+
+static const wchar_t* BackButtonMappingSuffix(BackButtonId id) {
+    switch (id) {
+    case BackButtonId::L4: return L"L4";
+    case BackButtonId::L5: return L"L5";
+    case BackButtonId::R4: return L"R4";
+    case BackButtonId::R5: return L"R5";
+    default: return L"L4";
+    }
+}
+
+static std::wstring BackButtonMappingValueName(VirtualControllerMode mode, BackButtonId id) {
+    std::wstring name = BackButtonMappingPrefixForMode(mode);
+    name += BackButtonMappingSuffix(id);
+    return name;
 }
 
 static bool IsPlayStationOutputMode(VirtualControllerMode mode) {
     return mode == VirtualControllerMode::DualShock4 ||
            mode == VirtualControllerMode::DualSense;
+}
+
+static bool IsSwitchOutputMode(VirtualControllerMode mode) {
+    return mode == VirtualControllerMode::Switch2Pro;
+}
+
+static bool IsTrackpadDpadLockingOutputMode(VirtualControllerMode mode) {
+    return IsPlayStationOutputMode(mode) || IsSwitchOutputMode(mode);
 }
 
 static int ThresholdToSliderPosition(double threshold) {
@@ -215,18 +243,28 @@ LRESULT TrayApp::HandleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             break;
         case IDM_OUTPUT_X360:
             m_controller->SetOutputMode(VirtualControllerMode::Xbox360);
+            LoadBackButtonMappingsForCurrentMode();
             RefreshBackButtonMappingWindow();
             RefreshDualSenseSettingsWindow();
             SaveSettings();
             break;
         case IDM_OUTPUT_DS4:
             m_controller->SetOutputMode(VirtualControllerMode::DualShock4);
+            LoadBackButtonMappingsForCurrentMode();
             RefreshBackButtonMappingWindow();
             RefreshDualSenseSettingsWindow();
             SaveSettings();
             break;
         case IDM_OUTPUT_DSENSE:
             m_controller->SetOutputMode(VirtualControllerMode::DualSense);
+            LoadBackButtonMappingsForCurrentMode();
+            RefreshBackButtonMappingWindow();
+            RefreshDualSenseSettingsWindow();
+            SaveSettings();
+            break;
+        case IDM_OUTPUT_SWITCH2PRO:
+            m_controller->SetOutputMode(VirtualControllerMode::Switch2Pro);
+            LoadBackButtonMappingsForCurrentMode();
             RefreshBackButtonMappingWindow();
             RefreshDualSenseSettingsWindow();
             SaveSettings();
@@ -599,15 +637,6 @@ void TrayApp::LoadSettings() {
             return val != 0;
         return def;
     };
-    auto readAction = [&](const wchar_t* name) -> BackButtonAction {
-        DWORD val = 0, size = sizeof(val);
-        if (RegQueryValueExW(key, name, nullptr, nullptr,
-                             reinterpret_cast<LPBYTE>(&val), &size) == ERROR_SUCCESS &&
-            IsValidBackButtonAction(val)) {
-            return static_cast<BackButtonAction>(val);
-        }
-        return BackButtonAction::None;
-    };
     auto readThreshold = [&](const wchar_t* name) -> double {
         DWORD val = DUALSENSE_RUMBLE_THRESHOLD_DEFAULT, size = sizeof(val);
         if (RegQueryValueExW(key, name, nullptr, nullptr,
@@ -625,6 +654,8 @@ void TrayApp::LoadSettings() {
             mode = VirtualControllerMode::DualShock4;
         else if (outputMode == 2)
             mode = VirtualControllerMode::DualSense;
+        else if (outputMode == 3)
+            mode = VirtualControllerMode::Switch2Pro;
         m_controller->SetOutputMode(mode);
     }
 
@@ -634,13 +665,49 @@ void TrayApp::LoadSettings() {
     m_controller->SetTrackpadDpadEnabled (readBool(L"TrackpadDpad",    false));
     m_controller->SetTrackpadDpadUseRight(readBool(L"TrackpadDpadRight", false));
     m_controller->SetHideOriginalControllerEnabled(readBool(L"HideOriginalController", true));
-    m_controller->SetBackButtonMapping(BackButtonId::L4, readAction(L"BackMapL4"));
-    m_controller->SetBackButtonMapping(BackButtonId::L5, readAction(L"BackMapL5"));
-    m_controller->SetBackButtonMapping(BackButtonId::R4, readAction(L"BackMapR4"));
-    m_controller->SetBackButtonMapping(BackButtonId::R5, readAction(L"BackMapR5"));
+    LoadBackButtonMappingsForCurrentMode(key);
     m_controller->SetDualSenseAudioRumbleThreshold(readThreshold(L"DualSenseRumbleThreshold"));
 
     RegCloseKey(key);
+}
+
+void TrayApp::LoadBackButtonMappingsForCurrentMode() {
+    HKEY key;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, REG_KEY, 0, KEY_READ, &key) != ERROR_SUCCESS) {
+        m_controller->SetBackButtonMappingsFromSettings(BackButtonMappings{}, false);
+        return;
+    }
+
+    LoadBackButtonMappingsForCurrentMode(key);
+    RegCloseKey(key);
+}
+
+void TrayApp::LoadBackButtonMappingsForCurrentMode(HKEY key) {
+    const auto mode = m_controller->GetOutputMode();
+    auto readAction = [&](BackButtonId id, bool& found) -> BackButtonAction {
+        const std::wstring name = BackButtonMappingValueName(mode, id);
+        DWORD val = 0, size = sizeof(val);
+        if (RegQueryValueExW(key, name.c_str(), nullptr, nullptr,
+                             reinterpret_cast<LPBYTE>(&val), &size) == ERROR_SUCCESS) {
+            found = true;
+            if (IsValidBackButtonAction(val))
+                return static_cast<BackButtonAction>(val);
+        }
+        return BackButtonAction::None;
+    };
+
+    bool hasBackMapL4 = false;
+    bool hasBackMapL5 = false;
+    bool hasBackMapR4 = false;
+    bool hasBackMapR5 = false;
+    BackButtonMappings mappings{};
+    mappings.Set(BackButtonId::L4, readAction(BackButtonId::L4, hasBackMapL4));
+    mappings.Set(BackButtonId::L5, readAction(BackButtonId::L5, hasBackMapL5));
+    mappings.Set(BackButtonId::R4, readAction(BackButtonId::R4, hasBackMapR4));
+    mappings.Set(BackButtonId::R5, readAction(BackButtonId::R5, hasBackMapR5));
+    m_controller->SetBackButtonMappingsFromSettings(
+        mappings,
+        hasBackMapL4 || hasBackMapL5 || hasBackMapR4 || hasBackMapR5);
 }
 
 void TrayApp::SaveSettings() {
@@ -652,11 +719,6 @@ void TrayApp::SaveSettings() {
 
     auto writeBool = [&](const wchar_t* name, bool val) {
         DWORD dw = val ? 1 : 0;
-        RegSetValueExW(key, name, 0, REG_DWORD,
-                       reinterpret_cast<const BYTE*>(&dw), sizeof(dw));
-    };
-    auto writeAction = [&](const wchar_t* name, BackButtonAction action) {
-        DWORD dw = static_cast<DWORD>(action);
         RegSetValueExW(key, name, 0, REG_DWORD,
                        reinterpret_cast<const BYTE*>(&dw), sizeof(dw));
     };
@@ -677,15 +739,29 @@ void TrayApp::SaveSettings() {
         outputMode = 1u;
     else if (m_controller->GetOutputMode() == VirtualControllerMode::DualSense)
         outputMode = 2u;
+    else if (m_controller->GetOutputMode() == VirtualControllerMode::Switch2Pro)
+        outputMode = 3u;
     RegSetValueExW(key, L"OutputMode", 0, REG_DWORD,
                    reinterpret_cast<const BYTE*>(&outputMode), sizeof(outputMode));
-    writeAction(L"BackMapL4", m_controller->GetBackButtonMapping(BackButtonId::L4));
-    writeAction(L"BackMapL5", m_controller->GetBackButtonMapping(BackButtonId::L5));
-    writeAction(L"BackMapR4", m_controller->GetBackButtonMapping(BackButtonId::R4));
-    writeAction(L"BackMapR5", m_controller->GetBackButtonMapping(BackButtonId::R5));
+    SaveBackButtonMappingsForCurrentMode(key);
     writeThreshold(L"DualSenseRumbleThreshold", m_controller->GetDualSenseAudioRumbleThreshold());
 
     RegCloseKey(key);
+}
+
+void TrayApp::SaveBackButtonMappingsForCurrentMode(HKEY key) {
+    const auto mode = m_controller->GetOutputMode();
+    auto writeAction = [&](BackButtonId id) {
+        const std::wstring name = BackButtonMappingValueName(mode, id);
+        DWORD dw = static_cast<DWORD>(m_controller->GetBackButtonMapping(id));
+        RegSetValueExW(key, name.c_str(), 0, REG_DWORD,
+                       reinterpret_cast<const BYTE*>(&dw), sizeof(dw));
+    };
+
+    writeAction(BackButtonId::L4);
+    writeAction(BackButtonId::L5);
+    writeAction(BackButtonId::R4);
+    writeAction(BackButtonId::R5);
 }
 
 void TrayApp::ShowBackButtonMappingWindow() {
@@ -775,6 +851,8 @@ void TrayApp::RefreshBackButtonMappingWindow() {
     SetWindowTextW(m_backButtonHwnd,
                    mode == VirtualControllerMode::DualSense
                        ? L"Back Button Mappings - DualSense"
+                       : mode == VirtualControllerMode::Switch2Pro
+                       ? L"Back Button Mappings - Switch 2 Pro"
                        : playStationMode ? L"Back Button Mappings - DualShock 4"
                                          : L"Back Button Mappings - Xbox 360");
 
@@ -792,7 +870,9 @@ void TrayApp::PopulateBackButtonCombo(HWND combo, BackButtonAction selected) {
 
     SendMessageW(combo, CB_RESETCONTENT, 0, 0);
 
-    const bool playStationMode = IsPlayStationOutputMode(m_controller->GetOutputMode());
+    const VirtualControllerMode mode = m_controller->GetOutputMode();
+    const bool playStationMode = IsPlayStationOutputMode(mode);
+    const bool switchMode = IsSwitchOutputMode(mode);
     int selectedIndex = 0;
     auto add = [&](const wchar_t* label, BackButtonAction action) {
         const int index = static_cast<int>(SendMessageW(combo, CB_ADDSTRING, 0,
@@ -808,19 +888,23 @@ void TrayApp::PopulateBackButtonCombo(HWND combo, BackButtonAction selected) {
     add(L"D-pad Down", BackButtonAction::DpadDown);
     add(L"D-pad Left", BackButtonAction::DpadLeft);
     add(L"D-pad Right", BackButtonAction::DpadRight);
-    add(playStationMode ? L"Cross" : L"A", BackButtonAction::South);
-    add(playStationMode ? L"Circle" : L"B", BackButtonAction::East);
-    add(playStationMode ? L"Square" : L"X", BackButtonAction::West);
-    add(playStationMode ? L"Triangle" : L"Y", BackButtonAction::North);
-    add(playStationMode ? L"L1" : L"LB", BackButtonAction::LeftBumper);
-    add(playStationMode ? L"R1" : L"RB", BackButtonAction::RightBumper);
-    add(playStationMode ? L"L2" : L"LT", BackButtonAction::LeftTrigger);
-    add(playStationMode ? L"R2" : L"RT", BackButtonAction::RightTrigger);
+    add(playStationMode ? L"Cross" : (switchMode ? L"B" : L"A"), BackButtonAction::South);
+    add(playStationMode ? L"Circle" : (switchMode ? L"A" : L"B"), BackButtonAction::East);
+    add(playStationMode ? L"Square" : (switchMode ? L"Y" : L"X"), BackButtonAction::West);
+    add(playStationMode ? L"Triangle" : (switchMode ? L"X" : L"Y"), BackButtonAction::North);
+    add(playStationMode ? L"L1" : (switchMode ? L"L" : L"LB"), BackButtonAction::LeftBumper);
+    add(playStationMode ? L"R1" : (switchMode ? L"R" : L"RB"), BackButtonAction::RightBumper);
+    add(playStationMode ? L"L2" : (switchMode ? L"ZL" : L"LT"), BackButtonAction::LeftTrigger);
+    add(playStationMode ? L"R2" : (switchMode ? L"ZR" : L"RT"), BackButtonAction::RightTrigger);
     add(playStationMode ? L"L3" : L"Left Stick Click", BackButtonAction::LeftStick);
     add(playStationMode ? L"R3" : L"Right Stick Click", BackButtonAction::RightStick);
-    add(playStationMode ? L"Create / Share" : L"Back", BackButtonAction::Back);
-    add(playStationMode ? L"Options" : L"Start", BackButtonAction::Start);
-    add(playStationMode ? L"PS" : L"Guide", BackButtonAction::Guide);
+    add(playStationMode ? L"Create / Share" : (switchMode ? L"Minus" : L"Back"), BackButtonAction::Back);
+    add(playStationMode ? L"Options" : (switchMode ? L"Plus" : L"Start"), BackButtonAction::Start);
+    add(playStationMode ? L"PS" : (switchMode ? L"Home" : L"Guide"), BackButtonAction::Guide);
+    if (switchMode) {
+        add(L"GL", BackButtonAction::GL);
+        add(L"GR", BackButtonAction::GR);
+    }
 
     SendMessageW(combo, CB_SETCURSEL, static_cast<WPARAM>(selectedIndex), 0);
 }
@@ -1012,7 +1096,7 @@ void TrayApp::ShowContextMenu() {
     bool hidHideAvailable = m_controller->IsHidHideAvailable();
     bool backButtonMappingsActive = m_controller->HasBackButtonMappings();
     VirtualControllerMode outputMode = m_controller->GetOutputMode();
-    const bool dpadLocksMouse = IsPlayStationOutputMode(outputMode) && trackpadDpadOn;
+    const bool dpadLocksMouse = IsTrackpadDpadLockingOutputMode(outputMode) && trackpadDpadOn;
 
     HMENU menu = CreatePopupMenu();
 
@@ -1066,6 +1150,9 @@ void TrayApp::ShowContextMenu() {
     AppendMenuW(outputMenu,
                 MF_STRING | (outputMode == VirtualControllerMode::DualSense ? MF_CHECKED : MF_UNCHECKED),
                 IDM_OUTPUT_DSENSE, L"DualSense");
+    AppendMenuW(outputMenu,
+                MF_STRING | (outputMode == VirtualControllerMode::Switch2Pro ? MF_CHECKED : MF_UNCHECKED),
+                IDM_OUTPUT_SWITCH2PRO, L"Switch 2 Pro Controller");
     AppendMenuW(outputMenu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(outputMenu,
                 MF_STRING | (outputMode == VirtualControllerMode::DualSense ? MF_ENABLED : MF_GRAYED),

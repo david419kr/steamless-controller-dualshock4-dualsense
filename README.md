@@ -1,16 +1,16 @@
-# SteamlessController DualShock 4 / DualSense Support Fork
+# SteamlessController DualShock 4 / DualSense / Switch 2 Pro Support Fork
 
 [한국어 설명](README-fork-KR.md)
 
-This fork turns a Steam Controller into a virtual Xbox 360, DualShock 4, or experimental DualSense controller. The main branch goal is parity with the original Xbox 360 behavior plus native PlayStation-controller features for games that support them.
+This fork turns a Steam Controller into a virtual Xbox 360, DualShock 4, experimental DualSense, or experimental Switch 2 Pro Controller. The main branch goal is parity with the original Xbox 360 behavior plus native PlayStation/Nintendo controller features for games that support them.
 
 ## Release Installer Usage
 
 1. Download `SteamlessController-Setup.exe` from the [latest release](https://github.com/david419kr/steamless-controller-dualshock4/releases/latest) and install it.
 2. Reboot Windows once after installation.
 3. Connect the Steam Controller 2026 by USB or through the wireless Puck.
-4. From the tray menu, choose `Output Mode -> DualShock 4` or `Output Mode -> DualSense`, then enable `Steamless Mode`.
-5. For native PlayStation-controller input in Steam, enable Steamless Mode first, then use `Restart Steam` from the tray menu.
+4. From the tray menu, choose `Output Mode -> DualShock 4`, `Output Mode -> DualSense`, or `Output Mode -> Switch 2 Pro Controller`, then enable `Steamless Mode`.
+5. For native PlayStation/Nintendo-controller input in Steam, enable Steamless Mode first, then use `Restart Steam` from the tray menu.
 6. If needed per game, right-click the game in Steam, open Properties, and disable Steam Input.
 
 ## Supported Features
@@ -18,6 +18,7 @@ This fork turns a Steam Controller into a virtual Xbox 360, DualShock 4, or expe
 - DualShock 4 mode supports buttons, sticks, triggers, native gyro/accelerometer output, touchpad output, rumble, Steam Controller trackpad haptics, trackpad D-pad, and L4/L5/R4/R5 back-button mapping.
 - HidHide + DualShock 4 mode has been tested in Steam with native gyro controls working in **Pragmata**.
 - DualSense mode has been tested with best-effort Haptic Feedback in **Ratchet & Clank: Rift Apart** and **Marvel's Spider-Man Remastered**.
+- Switch 2 Pro Controller mode is experimental and supports buttons, sticks, ZL/ZR, native gyro/accelerometer output, Capture, C, GL/GR back-button mapping, and best-effort HD Rumble translation.
 - Native gyro input has also been tested outside Steam in **Cemu**.
 
 ## DualSense Support
@@ -52,13 +53,13 @@ A lightweight Windows system tray app that lets you use a **Steam Controller** a
 
 <img width="261" height="194" alt="image" src="https://github.com/user-attachments/assets/8e4a1355-d854-4b67-a486-590d225700f5" />
 
-When **Steamless Mode** is active, the app disables the controller's built-in keyboard/mouse emulation, reads raw HID input from the Steam Controller, and exposes it as a virtual Xbox 360, DualShock 4, or experimental DualSense controller through VIIPER.
+When **Steamless Mode** is active, the app disables the controller's built-in keyboard/mouse emulation, reads raw HID input from the Steam Controller, and exposes it as a virtual Xbox 360, DualShock 4, experimental DualSense, or experimental Switch 2 Pro Controller through VIIPER.
 
 ## Features
 
 - System tray icon shows connection and mode status
-- **Steamless Mode** exposes the controller as Xbox 360, DualShock 4, or DualSense
-- **Output Mode** switches between Xbox 360, DualShock 4, and DualSense
+- **Steamless Mode** exposes the controller as Xbox 360, DualShock 4, DualSense, or Switch 2 Pro Controller
+- **Output Mode** switches between Xbox 360, DualShock 4, DualSense, and Switch 2 Pro Controller
 - **Trackpad Mouse** uses the right or left trackpad as a mouse cursor
 - **Trackpad D-pad** maps one trackpad to D-pad directions
 - **Back Button Mappings** maps L4/L5/R4/R5 to gamepad buttons
@@ -109,7 +110,7 @@ You can also build the patched VIIPER sidecar directly:
 powershell -ExecutionPolicy Bypass -File tools\build-viiper.ps1 -OutputDir build\release\Release
 ```
 
-The script clones upstream VIIPER `v0.6.1`, applies `third_party\viiper-patches\viiper-v0.6.1-ds4-compat.patch` and `third_party\viiper-patches\viiper-v0.6.1-dualsense.patch`, builds `viiper.exe`, and marks it as `v0.6.1-steamless5`. Stock `v0.6.1` is intentionally rejected in PlayStation modes because it does not expose the reports required by native gyro/touch/trigger/Haptic Feedback clients.
+The script clones upstream VIIPER `v0.6.1`, applies the bundled DS4, DualSense, and Switch 2 Pro patches/overlay under `third_party\viiper-patches`, builds `viiper.exe`, and marks it as `v0.6.1-steamless7`. Stock `v0.6.1` is intentionally rejected in PlayStation/Switch modes because it does not expose the reports required by native gyro/touch/trigger/Haptic Feedback or Switch 2 Pro clients.
 
 ## Bundled Installer
 

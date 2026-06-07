@@ -3,7 +3,7 @@ param(
     [string]$SourceDir,
     [string]$RepoUrl = "https://github.com/Alia5/VIIPER.git",
     [string]$UpstreamTag = "v0.6.1",
-    [string]$SteamlessVersion = "v0.6.1-steamless6"
+    [string]$SteamlessVersion = "v0.6.1-steamless7"
 )
 
 Set-StrictMode -Version Latest
@@ -44,12 +44,18 @@ function Invoke-Checked {
 $repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
 $patchPaths = @(
     (Join-Path $repoRoot "third_party\viiper-patches\viiper-v0.6.1-ds4-compat.patch"),
-    (Join-Path $repoRoot "third_party\viiper-patches\viiper-v0.6.1-dualsense.patch")
+    (Join-Path $repoRoot "third_party\viiper-patches\viiper-v0.6.1-dualsense.patch"),
+    (Join-Path $repoRoot "third_party\viiper-patches\viiper-v0.6.1-ns2pro-core.patch")
 )
 foreach ($patchPath in $patchPaths) {
     if (-not (Test-Path -LiteralPath $patchPath -PathType Leaf)) {
         throw "Patch file not found: $patchPath"
     }
+}
+
+$ns2ProOverlay = Join-Path $repoRoot "third_party\viiper-patches\ns2pro-overlay"
+if (-not (Test-Path -LiteralPath $ns2ProOverlay -PathType Container)) {
+    throw "NS2 Pro overlay not found: $ns2ProOverlay"
 }
 
 if ([string]::IsNullOrWhiteSpace($SourceDir)) {
@@ -91,11 +97,11 @@ if (Test-Path -LiteralPath $sourceGitDir -PathType Container) {
 
 foreach ($patchPath in $patchPaths) {
     $patchName = Split-Path -Leaf $patchPath
-    $applyCheckOutput = & $git -C $SourceDir apply --unidiff-zero --check $patchPath 2>&1
+    $applyCheckOutput = & $git -C $SourceDir apply --unidiff-zero --whitespace=nowarn --check $patchPath 2>&1
     if ($LASTEXITCODE -eq 0) {
-        Invoke-Checked -FilePath $git -Arguments @("-C", $SourceDir, "apply", "--unidiff-zero", $patchPath)
+        Invoke-Checked -FilePath $git -Arguments @("-C", $SourceDir, "apply", "--unidiff-zero", "--whitespace=nowarn", $patchPath)
     } else {
-        $reverseCheckOutput = & $git -C $SourceDir apply --unidiff-zero --reverse --check $patchPath 2>&1
+        $reverseCheckOutput = & $git -C $SourceDir apply --unidiff-zero --whitespace=nowarn --reverse --check $patchPath 2>&1
         if ($LASTEXITCODE -eq 0) {
             Write-Host "VIIPER patch is already applied: $patchName"
         } else {
@@ -104,6 +110,14 @@ foreach ($patchPath in $patchPaths) {
             throw "Could not apply or verify VIIPER patch: $patchName"
         }
     }
+}
+
+Get-ChildItem -LiteralPath $ns2ProOverlay -Force |
+    Copy-Item -Destination $SourceDir -Recurse -Force
+
+$registryFile = Join-Path $SourceDir "internal\registry\devices.go"
+if (-not (Select-String -LiteralPath $registryFile -Pattern 'github.com/Alia5/VIIPER/device/ns2pro' -SimpleMatch -Quiet)) {
+    throw "NS2 Pro device registry import is missing after VIIPER patch application: $registryFile"
 }
 
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
@@ -135,6 +149,13 @@ if (Test-Path -LiteralPath $licenseSource -PathType Leaf) {
 foreach ($patchPath in $patchPaths) {
     Copy-Item -LiteralPath $patchPath -Destination (Join-Path $OutputDir (Split-Path -Leaf $patchPath)) -Force
 }
+$ns2ProOverlayOutput = Join-Path $OutputDir "ns2pro-overlay"
+if (Test-Path -LiteralPath $ns2ProOverlayOutput) {
+    Remove-Item -LiteralPath $ns2ProOverlayOutput -Recurse -Force
+}
+New-Item -ItemType Directory -Force -Path $ns2ProOverlayOutput | Out-Null
+Get-ChildItem -LiteralPath $ns2ProOverlay -Force |
+    Copy-Item -Destination $ns2ProOverlayOutput -Recurse -Force
 
 $sourceNotice = @"
 This viiper.exe was built for SteamlessController.
@@ -145,6 +166,8 @@ Local version: $SteamlessVersion
 Patches:
   viiper-v0.6.1-ds4-compat.patch
   viiper-v0.6.1-dualsense.patch
+  viiper-v0.6.1-ns2pro-core.patch
+  ns2pro-overlay/
 
 Rebuild:
   powershell -ExecutionPolicy Bypass -File tools\build-viiper.ps1 -OutputDir <release-dir>

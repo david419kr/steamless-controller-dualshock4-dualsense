@@ -121,6 +121,61 @@ static double AudioBodyRumbleUnit(double energy, double peak, double transient, 
     return ClampUnit(std::pow(unit, 1.35) * 0.46);
 }
 
+static bool SwitchRumbleBlobSilent(const std::array<uint8_t, 16>& blob) {
+    return std::all_of(blob.begin(), blob.end(), [](uint8_t v) { return v == 0; });
+}
+
+static double SwitchRumbleBlobEnergy(const std::array<uint8_t, 16>& blob) {
+    if (SwitchRumbleBlobSilent(blob))
+        return 0.0;
+
+    uint32_t peak = 0;
+    uint32_t sumAbs = 0;
+    for (uint8_t value : blob) {
+        const int centered = static_cast<int>(value) - 128;
+        const uint32_t absValue = static_cast<uint32_t>(centered < 0 ? -centered : centered);
+        sumAbs += absValue;
+        if (absValue > peak)
+            peak = absValue;
+    }
+
+    const double average = static_cast<double>(sumAbs) / (16.0 * 128.0);
+    const double peakUnit = static_cast<double>(peak) / 128.0;
+    return ClampUnit(average * 0.55 + peakUnit * 0.45);
+}
+
+static double SwitchRumbleBlobDelta(const std::array<uint8_t, 16>& current,
+                                    const std::array<uint8_t, 16>& previous,
+                                    bool hasPrevious) {
+    if (!hasPrevious)
+        return SwitchRumbleBlobEnergy(current);
+
+    uint32_t sum = 0;
+    uint32_t peak = 0;
+    for (size_t i = 0; i < current.size(); ++i) {
+        const uint32_t diff = current[i] > previous[i]
+            ? static_cast<uint32_t>(current[i] - previous[i])
+            : static_cast<uint32_t>(previous[i] - current[i]);
+        sum += diff;
+        if (diff > peak)
+            peak = diff;
+    }
+    return ClampUnit((static_cast<double>(sum) / (16.0 * 255.0)) * 0.70 +
+                     (static_cast<double>(peak) / 255.0) * 0.30);
+}
+
+static int16_t SwitchPulseGainDb(double intensity) {
+    intensity = std::pow(ClampUnit(intensity), 0.62);
+    const double gain = -24.0 + intensity * 34.0;
+    return static_cast<int16_t>(std::clamp<int>(static_cast<int>(std::lround(gain)), -24, 10));
+}
+
+static uint16_t SwitchPulseOnUs(double intensity) {
+    intensity = std::pow(ClampUnit(intensity), 0.76);
+    const double onUs = 1200.0 + intensity * 4200.0;
+    return static_cast<uint16_t>(std::clamp<int>(static_cast<int>(std::lround(onUs)), 1200, 5400));
+}
+
 static double DualSenseTriggerEngagement(uint8_t triggerPosition) {
     static constexpr uint8_t kTriggerDeadzone = 16;
     static constexpr uint8_t kTriggerFullEngage = 72;
@@ -752,6 +807,94 @@ void SteamController::SetDualSenseAudioHaptics(const SteamControllerDualSenseAud
         SendRumbleOutput(frame.left, frame.right);
 }
 
+void SteamController::SetSwitch2ProHaptics(const SteamControllerSwitch2ProHaptics& haptics) {
+    constexpr uint8_t kOutputFlagRumble = 0x01;
+    if ((haptics.flags & kOutputFlagRumble) == 0)
+        return;
+
+    const bool leftSilent = SwitchRumbleBlobSilent(haptics.leftRumble);
+    const bool rightSilent = SwitchRumbleBlobSilent(haptics.rightRumble);
+    const double leftEnergy = leftSilent ? 0.0 : SwitchRumbleBlobEnergy(haptics.leftRumble);
+    const double rightEnergy = rightSilent ? 0.0 : SwitchRumbleBlobEnergy(haptics.rightRumble);
+
+    bool pulseLeft = false;
+    bool pulseRight = false;
+    double pulseLeftIntensity = 0.0;
+    double pulseRightIntensity = 0.0;
+    bool sendRumble = false;
+    RumbleFrame frame{};
+    const auto now = std::chrono::steady_clock::now();
+    {
+        std::lock_guard<std::mutex> lock(m_rumbleMutex);
+        const double leftDelta = SwitchRumbleBlobDelta(haptics.leftRumble,
+                                                       m_lastSwitch2ProLeftRumble,
+                                                       m_hasSwitch2ProRumbleState);
+        const double rightDelta = SwitchRumbleBlobDelta(haptics.rightRumble,
+                                                        m_lastSwitch2ProRightRumble,
+                                                        m_hasSwitch2ProRumbleState);
+        m_lastSwitch2ProLeftRumble = haptics.leftRumble;
+        m_lastSwitch2ProRightRumble = haptics.rightRumble;
+        m_hasSwitch2ProRumbleState = true;
+
+        const double leftBody = leftEnergy > 0.74
+            ? std::pow((leftEnergy - 0.74) / 0.26, 1.25) * 0.40
+            : 0.0;
+        const double rightBody = rightEnergy > 0.74
+            ? std::pow((rightEnergy - 0.74) / 0.26, 1.25) * 0.40
+            : 0.0;
+        m_rumbleBaseLeft = leftBody > 0.0 ? UnitToHapticSpeed(leftBody, 0x0E00) : 0;
+        m_rumbleBaseRight = rightBody > 0.0 ? UnitToHapticSpeed(rightBody, 0x0E00) : 0;
+
+        pulseLeftIntensity = ClampUnit(leftDelta * 1.35 + leftEnergy * 0.18);
+        pulseRightIntensity = ClampUnit(rightDelta * 1.35 + rightEnergy * 0.18);
+        if (!leftSilent && pulseLeftIntensity > 0.045 &&
+            now - m_lastSwitch2ProLeftPulse >= std::chrono::milliseconds(20)) {
+            pulseLeft = true;
+            m_lastSwitch2ProLeftPulse = now;
+        }
+        if (!rightSilent && pulseRightIntensity > 0.045 &&
+            now - m_lastSwitch2ProRightPulse >= std::chrono::milliseconds(20)) {
+            pulseRight = true;
+            m_lastSwitch2ProRightPulse = now;
+        }
+
+        frame = CurrentRumbleFrameLocked(now);
+        sendRumble = ShouldSendRumbleOutputLocked(frame,
+                                                  now,
+                                                  std::chrono::milliseconds(40),
+                                                  0x0500);
+    }
+
+    if (pulseLeft) {
+        SendTrackpadPulseOutput(TRACKPAD_HAPTIC_OUTPUT_LEFT,
+                                SwitchPulseOnUs(pulseLeftIntensity),
+                                0,
+                                1,
+                                SwitchPulseGainDb(pulseLeftIntensity));
+        SendTrackpadCommandOutput(TRACKPAD_HAPTIC_OUTPUT_LEFT,
+                                  HAPTIC_COMMAND_TICK,
+                                  static_cast<int8_t>(std::clamp<int>(
+                                      static_cast<int>(std::lround(SwitchPulseGainDb(pulseLeftIntensity) / 4.0)),
+                                      -24,
+                                      6)));
+    }
+    if (pulseRight) {
+        SendTrackpadPulseOutput(TRACKPAD_HAPTIC_OUTPUT_RIGHT,
+                                SwitchPulseOnUs(pulseRightIntensity),
+                                0,
+                                1,
+                                SwitchPulseGainDb(pulseRightIntensity));
+        SendTrackpadCommandOutput(TRACKPAD_HAPTIC_OUTPUT_RIGHT,
+                                  HAPTIC_COMMAND_TICK,
+                                  static_cast<int8_t>(std::clamp<int>(
+                                      static_cast<int>(std::lround(SwitchPulseGainDb(pulseRightIntensity) / 4.0)),
+                                      -24,
+                                      6)));
+    }
+    if (sendRumble)
+        SendRumbleOutput(frame.left, frame.right);
+}
+
 void SteamController::SetDualSenseAudioRumbleThreshold(double threshold) {
     m_dualSenseAudioRumbleThreshold.store(
         std::clamp(threshold,
@@ -783,6 +926,11 @@ void SteamController::ClearDualSenseHaptics() {
         m_dualSenseLeftTriggerEffect.fill(0);
         m_dualSenseRightTriggerEffect.fill(0);
         m_lastDualSenseAudioAt = {};
+        m_lastSwitch2ProLeftRumble.fill(0);
+        m_lastSwitch2ProRightRumble.fill(0);
+        m_hasSwitch2ProRumbleState = false;
+        m_lastSwitch2ProLeftPulse = {};
+        m_lastSwitch2ProRightPulse = {};
         NoteRumbleOutputLocked({}, now);
     }
     SendRumbleOutput(0, 0);

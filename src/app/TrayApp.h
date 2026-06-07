@@ -31,6 +31,9 @@ private:
     void RestartSteam();
     void LoadSettings();
     void SaveSettings();
+    void LoadBackButtonMappingsForCurrentMode();
+    void LoadBackButtonMappingsForCurrentMode(HKEY key);
+    void SaveBackButtonMappingsForCurrentMode(HKEY key);
     bool IsStartupEnabled() const;
     void SetStartupEnabled(bool enabled);
     void ShowBackButtonMappingWindow();
@@ -68,6 +71,7 @@ private:
     static constexpr UINT IDM_OUTPUT_X360   = 1007;
     static constexpr UINT IDM_OUTPUT_DS4    = 1008;
     static constexpr UINT IDM_OUTPUT_DSENSE = 1015;
+    static constexpr UINT IDM_OUTPUT_SWITCH2PRO = 1017;
     static constexpr UINT IDM_HIDE_ORIGINAL = 1009;
     static constexpr UINT IDM_REVEAL_ORIGINAL = 1010;
     static constexpr UINT IDM_TRACKPAD_DPAD = 1011;

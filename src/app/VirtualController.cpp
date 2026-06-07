@@ -11,6 +11,8 @@ const char* ModeName(VirtualControllerMode mode) {
         return "DualShock 4";
     case VirtualControllerMode::DualSense:
         return "DualSense";
+    case VirtualControllerMode::Switch2Pro:
+        return "Switch 2 Pro";
     default:
         return "Xbox 360";
     }
@@ -105,6 +107,10 @@ void VirtualController::Update(const SteamControllerState& state) {
         ViiperDualSenseInputState input = BuildViiperDualSenseInput(state, settings);
         input.batteryLevelPercent = m_batteryLevelPercent.load(std::memory_order_relaxed);
         input.chargeState = m_chargeState.load(std::memory_order_relaxed);
+        const auto data = input.Serialize();
+        ok = m_viiper.SendInput(data.data(), data.size());
+    } else if (m_mode == VirtualControllerMode::Switch2Pro) {
+        const ViiperSwitch2ProInputState input = BuildViiperSwitch2ProInput(state, settings);
         const auto data = input.Serialize();
         ok = m_viiper.SendInput(data.data(), data.size());
     } else {

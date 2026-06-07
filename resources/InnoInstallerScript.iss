@@ -63,6 +63,8 @@ Source: "{#MyBuildDir}\VIIPER-LICENSE.txt"; DestDir: "{app}"; Flags: ignoreversi
 Source: "{#MyBuildDir}\VIIPER-SOURCE.txt"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "{#MyBuildDir}\viiper-v0.6.1-ds4-compat.patch"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "{#MyBuildDir}\viiper-v0.6.1-dualsense.patch"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#MyBuildDir}\viiper-v0.6.1-ns2pro-core.patch"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#MyBuildDir}\ns2pro-overlay\*"; DestDir: "{app}\ns2pro-overlay"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
 ; NOTE: Don't use "Flags: ignoreversion" on any shared system files
 
 [Icons]

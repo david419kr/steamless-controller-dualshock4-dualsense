@@ -1,14 +1,14 @@
-# SteamlessController DualShock 4 / DualSense 지원 포크
+# SteamlessController DualShock 4 / DualSense / Switch 2 Pro 지원 포크
 
-이 브랜치는 Steam Controller를 가상 Xbox 360, DualShock 4, 또는 실험적 DualSense 컨트롤러로 노출하는 SteamlessController 포크입니다. 목표는 기존 Xbox 360 동작을 유지하면서, PlayStation 네이티브 입력 경로가 필요한 게임에서 자이로, 터치패드, 진동, 트랙패드 햅틱, DualShock 4 / DualSense 지원을 사용할 수 있게 하는 것입니다.
+이 브랜치는 Steam Controller를 가상 Xbox 360, DualShock 4, 실험적 DualSense, 또는 실험적 Switch 2 Pro Controller로 노출하는 SteamlessController 포크입니다. 목표는 기존 Xbox 360 동작을 유지하면서, PlayStation/Nintendo 네이티브 입력 경로가 필요한 게임에서 자이로, 터치패드, 진동, 트랙패드 햅틱, DualShock 4 / DualSense / Switch 2 Pro 지원을 사용할 수 있게 하는 것입니다.
 
 ## 릴리즈 설치 방법
 
 1. [최신 릴리즈](https://github.com/david419kr/steamless-controller-dualshock4/releases/latest)에서 `SteamlessController-Setup.exe`를 내려받아 설치합니다.
 2. 설치가 끝나면 Windows를 한 번 재부팅합니다.
 3. Steam Controller 2026을 유선 또는 무선 Puck으로 연결합니다.
-4. 트레이 메뉴에서 `Output Mode -> DualShock 4` 또는 `Output Mode -> DualSense`를 선택하고 `Enable Steamless Mode`를 켭니다.
-5. Steam에서 네이티브 PlayStation 컨트롤러 입력으로 쓰려면 Steamless Mode를 켠 뒤 트레이 메뉴의 `Restart Steam`을 실행하세요.
+4. 트레이 메뉴에서 `Output Mode -> DualShock 4`, `Output Mode -> DualSense`, 또는 `Output Mode -> Switch 2 Pro Controller`를 선택하고 `Enable Steamless Mode`를 켭니다.
+5. Steam에서 네이티브 PlayStation/Nintendo 컨트롤러 입력으로 쓰려면 Steamless Mode를 켠 뒤 트레이 메뉴의 `Restart Steam`을 실행하세요.
 6. 게임별로 필요하면 Steam 라이브러리의 해당 게임 속성에서 Steam Input을 비활성화합니다.
 
 ## 지원 기능
@@ -16,6 +16,7 @@
 - DualShock 4 모드는 버튼, 스틱, 트리거, 네이티브 자이로/가속도, 터치패드 출력, 진동, Steam Controller 트랙패드 햅틱, 트랙패드 D-pad, L4/L5/R4/R5 백버튼 매핑을 지원합니다.
 - HidHide와 DualShock 4 모드를 함께 사용하여 Steam에서 **Pragmata**의 네이티브 자이로 조작이 동작하는 것을 확인했습니다.
 - DualSense 모드를 사용하여 **Ratchet & Clank: Rift Apart**와 **Marvel's Spider-Man Remastered**에서 향상된 진동을 best-effort로 테스트했습니다.
+- Switch 2 Pro Controller 모드는 실험적 기능이며 버튼, 스틱, ZL/ZR, 네이티브 자이로/가속도, Capture, C, GL/GR 백버튼 매핑, HD Rumble best-effort 변환을 지원합니다.
 - Steam 외 사용처로 **Cemu**에서도 네이티브 자이로 입력이 동작하는 것을 확인했습니다.
 
 ## DualSense 지원
@@ -51,7 +52,7 @@ cmake --build --preset release
 powershell -ExecutionPolicy Bypass -File tools\build-viiper.ps1 -OutputDir build\release\Release
 ```
 
-이 스크립트는 upstream VIIPER `v0.6.1`을 받아 `third_party\viiper-patches\viiper-v0.6.1-ds4-compat.patch`와 `third_party\viiper-patches\viiper-v0.6.1-dualsense.patch`를 적용하고, 서버 버전을 `v0.6.1-steamless5`로 표시한 `viiper.exe`를 빌드합니다. stock `v0.6.1`은 PlayStation 모드에서 의도적으로 거부합니다. 네이티브 자이로/터치패드/트리거/향상된 진동 클라이언트가 요구하는 feature report와 descriptor 보강이 없기 때문입니다.
+이 스크립트는 upstream VIIPER `v0.6.1`을 받아 `third_party\viiper-patches` 아래의 DS4, DualSense, Switch 2 Pro patch/overlay를 적용하고, 서버 버전을 `v0.6.1-steamless7`로 표시한 `viiper.exe`를 빌드합니다. stock `v0.6.1`은 PlayStation/Switch 모드에서 의도적으로 거부합니다. 네이티브 자이로/터치패드/트리거/향상된 진동 또는 Switch 2 Pro 클라이언트가 요구하는 feature report와 descriptor 보강이 없기 때문입니다.
 
 ## 단일 installer 패키징
 
@@ -83,6 +84,6 @@ cmake --build --preset installer
 
 ## 라이선스 메모
 
-패치된 `viiper.exe`를 배포 artifact에 포함하는 경우 VIIPER의 GPLv3 라이선스 고지와 대응 소스/패치 위치를 함께 제공해야 합니다. `tools\build-viiper.ps1`은 출력 폴더에 `VIIPER-LICENSE.txt`, `VIIPER-SOURCE.txt`, `viiper-v0.6.1-ds4-compat.patch`, `viiper-v0.6.1-dualsense.patch`를 같이 복사합니다.
+패치된 `viiper.exe`를 배포 artifact에 포함하는 경우 VIIPER의 GPLv3 라이선스 고지와 대응 소스/패치 위치를 함께 제공해야 합니다. `tools\build-viiper.ps1`은 출력 폴더에 `VIIPER-LICENSE.txt`, `VIIPER-SOURCE.txt`, DS4/DualSense/Switch 2 Pro patch 파일과 `ns2pro-overlay`를 같이 복사합니다.
 
 원본 SteamlessController 설명과 상세 빌드 타깃은 [README.md](README.md)를 참고하세요.

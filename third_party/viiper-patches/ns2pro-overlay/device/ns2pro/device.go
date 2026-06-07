@@ -1,0 +1,277 @@
+// Package ns2pro provides a Nintendo Switch 2 Pro Controller compatible HID device.
+package ns2pro
+
+import (
+	"encoding/json"
+	"fmt"
+	"sync"
+
+	"github.com/Alia5/VIIPER/device"
+	"github.com/Alia5/VIIPER/usb"
+	"github.com/Alia5/VIIPER/usbip"
+)
+
+type NS2Pro struct {
+	stateMu        sync.Mutex
+	inputState     *InputState
+	metaState      *MetaState
+	outputMu       sync.RWMutex
+	outputCallback func(OutputState)
+	outputVersion  uint64
+	descriptor     usb.Descriptor
+
+	protoMu           sync.Mutex
+	activeReportID    uint8
+	featureMask       uint8
+	featureFlags      uint8
+	usbReportsEnabled bool
+	reportCounter32   uint32
+	reportCounter8    uint8
+	motionTimestamp   uint32
+	bulkInQueue       [][]byte
+}
+
+func New(o *device.CreateOptions) (*NS2Pro, error) {
+	metaState := defaultMetaState()
+	if o != nil && o.DeviceSpecific != nil {
+		var newMeta MetaState
+		data, err := json.Marshal(o.DeviceSpecific)
+		if err != nil {
+			return nil, fmt.Errorf("marshal device specific args: %w", err)
+		}
+		if err := json.Unmarshal(data, &newMeta); err != nil {
+			return nil, fmt.Errorf("invalid device specific JSON: %w", err)
+		}
+		if newMeta.SerialNumber != "" {
+			metaState.SerialNumber = newMeta.SerialNumber
+		}
+		if newMeta.BatteryLevel != 0 {
+			metaState.BatteryLevel = newMeta.BatteryLevel
+		}
+		if newMeta.Charging {
+			metaState.Charging = true
+		}
+		if newMeta.ExternalPower {
+			metaState.ExternalPower = true
+		}
+		if newMeta.BatteryVolts != 0 {
+			metaState.BatteryVolts = newMeta.BatteryVolts
+		}
+	}
+
+	d := &NS2Pro{
+		inputState:     defaultInputState(),
+		metaState:      metaState,
+		descriptor:     MakeDescriptor(),
+		activeReportID: ReportIDPro,
+		featureFlags:   FeatureButtons | FeatureSticks,
+	}
+	serialEnding := DefaultSerialEnding
+	if len(metaState.SerialNumber) >= 2 {
+		serialEnding = metaState.SerialNumber[len(metaState.SerialNumber)-2:]
+	}
+	d.descriptor.Strings[3] = serialEnding
+
+	if o != nil {
+		if o.IdVendor != nil {
+			d.descriptor.Device.IDVendor = *o.IdVendor
+		}
+		if o.IdProduct != nil {
+			d.descriptor.Device.IDProduct = *o.IdProduct
+		}
+	}
+	return d, nil
+}
+
+func (d *NS2Pro) SetOutputCallback(f func(OutputState)) func() {
+	d.outputMu.Lock()
+	d.outputVersion++
+	version := d.outputVersion
+	d.outputCallback = f
+	d.outputMu.Unlock()
+
+	return func() {
+		d.outputMu.Lock()
+		if d.outputVersion == version {
+			d.outputCallback = nil
+		}
+		d.outputMu.Unlock()
+	}
+}
+
+func (d *NS2Pro) UpdateInputState(state InputState) {
+	d.stateMu.Lock()
+	defer d.stateMu.Unlock()
+	d.inputState = &state
+}
+
+func (d *NS2Pro) SetMetaState(meta MetaState) {
+	d.stateMu.Lock()
+	defer d.stateMu.Unlock()
+	d.metaState = &meta
+	if d.descriptor.Strings != nil {
+		serialEnding := DefaultSerialEnding
+		if len(meta.SerialNumber) >= 2 {
+			serialEnding = meta.SerialNumber[len(meta.SerialNumber)-2:]
+		}
+		d.descriptor.Strings[3] = serialEnding
+	}
+}
+
+func (d *NS2Pro) HandleTransfer(ep uint32, dir uint32, out []byte) []byte {
+	switch {
+	case dir == usbip.DirIn && ep == 1:
+		return d.nextInputReport()
+	case dir == usbip.DirIn && ep == 2:
+		return d.popBulkIn()
+	case dir == usbip.DirOut && ep == 1:
+		d.handleOutputReport(out)
+	case dir == usbip.DirOut && ep == 2:
+		d.handleBulkOut(out)
+	}
+	return nil
+}
+
+func (d *NS2Pro) HandleControl(bmRequestType, bRequest uint8, wValue, wIndex uint16, wLength uint16, data []byte) ([]byte, bool) {
+	const (
+		hidGetReport = 0x01
+		hidSetReport = 0x09
+	)
+	const (
+		reportTypeInput  = 0x01
+		reportTypeOutput = 0x02
+	)
+
+	reportType := uint8(wValue >> 8)
+	reportID := uint8(wValue)
+
+	if bmRequestType == 0xA1 && bRequest == hidGetReport && reportType == reportTypeInput {
+		switch reportID {
+		case ReportIDCommon, ReportIDPro, 0:
+			return d.inputReportForID(reportID), true
+		}
+	}
+
+	if bmRequestType == 0x21 && bRequest == hidSetReport && reportType == reportTypeOutput && reportID == ReportIDOutput {
+		d.handleOutputReport(data)
+		return nil, true
+	}
+
+	return nil, false
+}
+
+func (d *NS2Pro) GetDescriptor() *usb.Descriptor {
+	return &d.descriptor
+}
+
+func (d *NS2Pro) GetDeviceSpecificArgs() map[string]any {
+	d.stateMu.Lock()
+	defer d.stateMu.Unlock()
+	if d.metaState == nil {
+		return map[string]any{}
+	}
+	b, err := json.Marshal(d.metaState)
+	if err != nil {
+		return map[string]any{}
+	}
+	var out map[string]any
+	if err := json.Unmarshal(b, &out); err != nil {
+		return map[string]any{}
+	}
+	return out
+}
+
+func (d *NS2Pro) nextInputReport() []byte {
+	d.protoMu.Lock()
+	reportID := d.activeReportID
+	d.protoMu.Unlock()
+	return d.inputReportForID(reportID)
+}
+
+func (d *NS2Pro) inputReportForID(reportID uint8) []byte {
+	d.stateMu.Lock()
+	st := *d.inputState
+	meta := *d.metaState
+	d.stateMu.Unlock()
+
+	d.protoMu.Lock()
+	if reportID == 0 {
+		reportID = d.activeReportID
+	}
+	features := d.featureFlags
+	var report []byte
+	switch reportID {
+	case ReportIDCommon:
+		d.reportCounter32++
+		if features&FeatureIMU != 0 {
+			d.motionTimestamp += 4000
+		}
+		report = st.buildCommonReport(d.reportCounter32, d.motionTimestamp, features, meta)
+	default:
+		d.reportCounter8++
+		report = st.buildProReport(d.reportCounter8, features, meta)
+	}
+	d.protoMu.Unlock()
+	return report
+}
+
+func (d *NS2Pro) serialNumber() string {
+	d.stateMu.Lock()
+	defer d.stateMu.Unlock()
+	if d.metaState == nil {
+		return ""
+	}
+	return d.metaState.SerialNumber
+}
+
+func (d *NS2Pro) handleOutputReport(out []byte) {
+	if len(out) == 0 {
+		return
+	}
+
+	payload := out
+	if out[0] == ReportIDOutput {
+		payload = out[1:]
+	} else if len(out) != OutputRumbleSize {
+		return
+	}
+	if len(payload) < OutputRumbleSize {
+		return
+	}
+
+	feedback := OutputState{}
+	copy(feedback.LeftRumble[:], payload[0:16])
+	copy(feedback.RightRumble[:], payload[16:32])
+	feedback.Flags = OutputFlagRumble
+	d.emitOutput(feedback)
+}
+
+func (d *NS2Pro) emitOutput(feedback OutputState) {
+	d.outputMu.RLock()
+	callback := d.outputCallback
+	d.outputMu.RUnlock()
+	if callback != nil {
+		callback(feedback)
+	}
+}
+
+func (d *NS2Pro) enqueueResponse(resp []byte) {
+	d.protoMu.Lock()
+	defer d.protoMu.Unlock()
+	d.bulkInQueue = append(d.bulkInQueue, append([]byte(nil), resp...))
+}
+
+func (d *NS2Pro) popBulkIn() []byte {
+	d.protoMu.Lock()
+	defer d.protoMu.Unlock()
+	if len(d.bulkInQueue) == 0 {
+		return nil
+	}
+	chunk := d.bulkInQueue[0]
+	d.bulkInQueue = d.bulkInQueue[1:]
+	return append([]byte(nil), chunk...)
+}
+
+func commandHeader(cmd, seq, sub uint8) []byte {
+	return []byte{cmd, 0x01, seq, sub, 0x10, 0x78, 0x00, 0x00}
+}
