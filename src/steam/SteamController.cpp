@@ -73,6 +73,10 @@ static uint16_t UnitToHapticSpeed(double value, uint16_t minimumSpeed) {
     return static_cast<uint16_t>(std::clamp<int>(static_cast<int>(std::lround(speed)), 0, 0xFFFF));
 }
 
+static uint16_t AbsDiffU16(uint16_t a, uint16_t b) {
+    return a > b ? static_cast<uint16_t>(a - b) : static_cast<uint16_t>(b - a);
+}
+
 static double AudioValueToUnit(uint16_t value, uint16_t floor) {
     if (value <= floor)
         return 0.0;
@@ -359,8 +363,8 @@ void SteamController::SetRumble(uint8_t largeMotor, uint8_t smallMotor) {
         m_rumbleBoostUntil = {};
         m_dualSenseAudioLeft = 0;
         m_dualSenseAudioRight = 0;
-        m_lastRumbleSent = now;
         frame = CurrentRumbleFrameLocked(now);
+        NoteRumbleOutputLocked(frame, now);
     }
 
     SendRumbleOutput(frame.left, frame.right);
@@ -413,8 +417,8 @@ void SteamController::SetDs4EnhancedRumble(uint8_t largeMotor, uint8_t smallMoto
             }
         }
 
-        m_lastRumbleSent = now;
         frame = CurrentRumbleFrameLocked(now);
+        NoteRumbleOutputLocked(frame, now);
     }
 
     SendRumbleOutput(frame.left, frame.right);
@@ -592,8 +596,8 @@ void SteamController::SetDualSenseHaptics(const SteamControllerDualSenseHaptics&
             m_rumbleBoostUntil = {};
         }
 
-        m_lastRumbleSent = now;
         frame = CurrentRumbleFrameLocked(now);
+        NoteRumbleOutputLocked(frame, now);
     }
 
     if (leftTriggerClick)
@@ -617,6 +621,7 @@ void SteamController::SetDualSenseAudioHaptics(const SteamControllerDualSenseAud
     if (leftSilent && rightSilent) {
         RumbleFrame frame{};
         bool hadAudio = false;
+        bool sendRumble = false;
         const auto now = std::chrono::steady_clock::now();
         {
             std::lock_guard<std::mutex> lock(m_rumbleMutex);
@@ -627,9 +632,13 @@ void SteamController::SetDualSenseAudioHaptics(const SteamControllerDualSenseAud
             m_dualSenseAudioLeft = 0;
             m_dualSenseAudioRight = 0;
             frame = CurrentRumbleFrameLocked(now);
-            m_lastRumbleSent = now;
+            sendRumble = ShouldSendRumbleOutputLocked(frame,
+                                                      now,
+                                                      std::chrono::milliseconds(40),
+                                                      0x0400);
         }
-        SendRumbleOutput(frame.left, frame.right);
+        if (sendRumble)
+            SendRumbleOutput(frame.left, frame.right);
         return;
     }
 
@@ -651,6 +660,7 @@ void SteamController::SetDualSenseAudioHaptics(const SteamControllerDualSenseAud
     bool pulseRight = false;
     double pulseLeftIntensity = 0.0;
     double pulseRightIntensity = 0.0;
+    bool sendRumble = false;
     RumbleFrame frame{};
     {
         std::lock_guard<std::mutex> lock(m_rumbleMutex);
@@ -691,8 +701,11 @@ void SteamController::SetDualSenseAudioHaptics(const SteamControllerDualSenseAud
             m_lastDualSenseAudioRightPulse = now;
         }
 
-        m_lastRumbleSent = now;
         frame = CurrentRumbleFrameLocked(now);
+        sendRumble = ShouldSendRumbleOutputLocked(frame,
+                                                  now,
+                                                  std::chrono::milliseconds(35),
+                                                  0x0500);
     }
 
     if (pulseLeft) {
@@ -735,7 +748,8 @@ void SteamController::SetDualSenseAudioHaptics(const SteamControllerDualSenseAud
                                       HAPTIC_COMMAND_CLICK,
                                       AudioPulseClickGainDb(pulseRightIntensity));
     }
-    SendRumbleOutput(frame.left, frame.right);
+    if (sendRumble)
+        SendRumbleOutput(frame.left, frame.right);
 }
 
 void SteamController::SetDualSenseAudioRumbleThreshold(double threshold) {
@@ -769,7 +783,7 @@ void SteamController::ClearDualSenseHaptics() {
         m_dualSenseLeftTriggerEffect.fill(0);
         m_dualSenseRightTriggerEffect.fill(0);
         m_lastDualSenseAudioAt = {};
-        m_lastRumbleSent = now;
+        NoteRumbleOutputLocked({}, now);
     }
     SendRumbleOutput(0, 0);
 }
@@ -787,6 +801,40 @@ SteamController::RumbleFrame SteamController::CurrentRumbleFrameLocked(std::chro
             frame.right = m_rumbleBoostRight;
     }
     return frame;
+}
+
+void SteamController::NoteRumbleOutputLocked(const RumbleFrame& frame,
+                                             std::chrono::steady_clock::time_point now) {
+    m_lastRumbleSent = now;
+    m_lastRumbleOutputLeft = frame.left;
+    m_lastRumbleOutputRight = frame.right;
+    m_hasRumbleOutput = true;
+}
+
+bool SteamController::ShouldSendRumbleOutputLocked(const RumbleFrame& frame,
+                                                   std::chrono::steady_clock::time_point now,
+                                                   std::chrono::milliseconds maxInterval,
+                                                   uint16_t minDelta) {
+    if (!m_hasRumbleOutput) {
+        NoteRumbleOutputLocked(frame, now);
+        return true;
+    }
+
+    const bool frameZero = frame.left == 0 && frame.right == 0;
+    const bool lastZero = m_lastRumbleOutputLeft == 0 && m_lastRumbleOutputRight == 0;
+    if (frameZero && lastZero)
+        return false;
+
+    const bool changedToOrFromZero = frameZero != lastZero;
+    const bool changedEnough =
+        AbsDiffU16(frame.left, m_lastRumbleOutputLeft) >= minDelta ||
+        AbsDiffU16(frame.right, m_lastRumbleOutputRight) >= minDelta;
+    const bool staleEnough = now - m_lastRumbleSent >= maxInterval;
+    if (!changedToOrFromZero && !changedEnough && !staleEnough)
+        return false;
+
+    NoteRumbleOutputLocked(frame, now);
+    return true;
 }
 
 void SteamController::PulseTrackpadHaptic(bool left, bool strongClick) {
@@ -807,6 +855,7 @@ void SteamController::ClearTrackpadHaptics() {
 
 void SteamController::MaintainRumble() {
     RumbleFrame frame{};
+    bool sendRumble = false;
     {
         std::lock_guard<std::mutex> lock(m_rumbleMutex);
         const auto now = std::chrono::steady_clock::now();
@@ -818,16 +867,14 @@ void SteamController::MaintainRumble() {
         }
 
         frame = CurrentRumbleFrameLocked(now);
-        if (frame.left == 0 && frame.right == 0)
-            return;
-
-        if (now - m_lastRumbleSent < std::chrono::milliseconds(40))
-            return;
-
-        m_lastRumbleSent = now;
+        sendRumble = ShouldSendRumbleOutputLocked(frame,
+                                                  now,
+                                                  std::chrono::milliseconds(40),
+                                                  0x0400);
     }
 
-    SendRumbleOutput(frame.left, frame.right);
+    if (sendRumble)
+        SendRumbleOutput(frame.left, frame.right);
 }
 
 bool SteamController::SendRumbleOutput(uint16_t leftSpeed, uint16_t rightSpeed) {

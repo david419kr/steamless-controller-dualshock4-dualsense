@@ -233,6 +233,11 @@ private:
     void HeartbeatLoop();
     bool SendSettingsPayload(const uint8_t* payload, uint8_t payloadSize);
     RumbleFrame CurrentRumbleFrameLocked(std::chrono::steady_clock::time_point now) const;
+    void NoteRumbleOutputLocked(const RumbleFrame& frame, std::chrono::steady_clock::time_point now);
+    bool ShouldSendRumbleOutputLocked(const RumbleFrame& frame,
+                                      std::chrono::steady_clock::time_point now,
+                                      std::chrono::milliseconds maxInterval,
+                                      uint16_t minDelta);
     bool SendRumbleOutput(uint16_t leftSpeed, uint16_t rightSpeed);
     bool SendTrackpadFeaturePulse(uint8_t pad, uint16_t onUs, uint16_t offUs, uint16_t repeatCount, int16_t gainDb);
     bool SendTrackpadPulseOutput(uint8_t side, uint16_t onUs, uint16_t offUs, uint16_t repeatCount, int16_t gainDb);
@@ -264,6 +269,9 @@ private:
     uint16_t        m_rumbleBoostRight = 0;
     std::chrono::steady_clock::time_point m_rumbleBoostUntil{};
     std::chrono::steady_clock::time_point m_lastRumbleSent{};
+    uint16_t        m_lastRumbleOutputLeft = 0;
+    uint16_t        m_lastRumbleOutputRight = 0;
+    bool            m_hasRumbleOutput = false;
     uint8_t         m_lastDs4LargeMotor = 0;
     uint8_t         m_lastDs4SmallMotor = 0;
     bool            m_hasDs4RumbleState = false;
