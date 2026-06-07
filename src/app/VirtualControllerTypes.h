@@ -13,6 +13,7 @@ enum class VirtualControllerMode {
     DualShock4 = 1,
     DualSense = 2,
     Switch2Pro = 3,
+    SwitchPro = 4,
 };
 
 enum class VirtualControllerError {
@@ -117,6 +118,22 @@ struct ViiperSwitch2ProInputState {
     std::array<uint8_t, 24> Serialize() const;
 };
 
+struct ViiperSwitchProInputState {
+    uint32_t buttons = 0;
+    uint16_t leftStickX = 0x0800;
+    uint16_t leftStickY = 0x0800;
+    uint16_t rightStickX = 0x0800;
+    uint16_t rightStickY = 0x0800;
+    int16_t accelX = 0;
+    int16_t accelY = 0;
+    int16_t accelZ = 0;
+    int16_t gyroX = 0;
+    int16_t gyroY = 0;
+    int16_t gyroZ = 0;
+
+    std::array<uint8_t, 24> Serialize() const;
+};
+
 struct ViiperDualSenseFeedbackState {
     uint8_t enableBits1 = 0;
     uint8_t enableBits2 = 0;
@@ -147,6 +164,13 @@ struct ViiperSwitch2ProFeedbackState {
     uint8_t playerLedMask = 0;
 };
 
+struct ViiperSwitchProFeedbackState {
+    std::array<uint8_t, 4> leftRumble{};
+    std::array<uint8_t, 4> rightRumble{};
+    uint8_t flags = 0;
+    uint8_t playerLedMask = 0;
+};
+
 struct ViiperFeedbackState {
     VirtualControllerMode mode = VirtualControllerMode::Xbox360;
     uint8_t largeMotor = 0;
@@ -155,6 +179,7 @@ struct ViiperFeedbackState {
     ViiperDualSenseFeedbackState dualSense;
     ViiperDualSenseAudioHapticsState dualSenseAudio;
     ViiperSwitch2ProFeedbackState switch2Pro;
+    ViiperSwitchProFeedbackState switchPro;
 };
 
 ViiperXbox360InputState BuildViiperXbox360Input(
@@ -170,6 +195,10 @@ ViiperDualSenseInputState BuildViiperDualSenseInput(
     const VirtualControllerRuntimeSettings& settings);
 
 ViiperSwitch2ProInputState BuildViiperSwitch2ProInput(
+    const SteamControllerState& state,
+    const VirtualControllerRuntimeSettings& settings);
+
+ViiperSwitchProInputState BuildViiperSwitchProInput(
     const SteamControllerState& state,
     const VirtualControllerRuntimeSettings& settings);
 
@@ -194,3 +223,7 @@ bool DecodeViiperDualSenseAudioHaptics(const uint8_t* data,
 bool DecodeViiperSwitch2ProFeedback(const uint8_t* data,
                                     size_t size,
                                     ViiperSwitch2ProFeedbackState& feedback);
+
+bool DecodeViiperSwitchProFeedback(const uint8_t* data,
+                                   size_t size,
+                                   ViiperSwitchProFeedbackState& feedback);

@@ -49,7 +49,11 @@ static bool IsValidBackButtonAction(DWORD value) {
 }
 
 static const wchar_t* BackButtonMappingPrefixForMode(VirtualControllerMode mode) {
-    return mode == VirtualControllerMode::Switch2Pro ? L"SwitchBackMap" : L"BackMap";
+    if (mode == VirtualControllerMode::Switch2Pro)
+        return L"SwitchBackMap";
+    if (mode == VirtualControllerMode::SwitchPro)
+        return L"SwitchProBackMap";
+    return L"BackMap";
 }
 
 static const wchar_t* BackButtonMappingSuffix(BackButtonId id) {
@@ -74,6 +78,11 @@ static bool IsPlayStationOutputMode(VirtualControllerMode mode) {
 }
 
 static bool IsSwitchOutputMode(VirtualControllerMode mode) {
+    return mode == VirtualControllerMode::Switch2Pro ||
+           mode == VirtualControllerMode::SwitchPro;
+}
+
+static bool IsSwitch2OutputMode(VirtualControllerMode mode) {
     return mode == VirtualControllerMode::Switch2Pro;
 }
 
@@ -197,7 +206,7 @@ LRESULT TrayApp::HandleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_TRAY:
         if (LOWORD(lp) == NIN_BALLOONUSERCLICK &&
             m_lastVirtualControllerError != VirtualControllerError::None)
-            ShellExecuteW(nullptr, L"open", L"https://github.com/david419kr/steamless-controller-dualshock4/releases/latest",
+            ShellExecuteW(nullptr, L"open", L"https://github.com/david419kr/steamless-controller-dualshock4-dualsense/releases/latest",
                           nullptr, nullptr, SW_SHOWNORMAL);
         else if (LOWORD(lp) == WM_RBUTTONUP || LOWORD(lp) == WM_LBUTTONUP)
             ShowContextMenu();
@@ -264,6 +273,13 @@ LRESULT TrayApp::HandleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             break;
         case IDM_OUTPUT_SWITCH2PRO:
             m_controller->SetOutputMode(VirtualControllerMode::Switch2Pro);
+            LoadBackButtonMappingsForCurrentMode();
+            RefreshBackButtonMappingWindow();
+            RefreshDualSenseSettingsWindow();
+            SaveSettings();
+            break;
+        case IDM_OUTPUT_SWITCHPRO:
+            m_controller->SetOutputMode(VirtualControllerMode::SwitchPro);
             LoadBackButtonMappingsForCurrentMode();
             RefreshBackButtonMappingWindow();
             RefreshDualSenseSettingsWindow();
@@ -656,6 +672,8 @@ void TrayApp::LoadSettings() {
             mode = VirtualControllerMode::DualSense;
         else if (outputMode == 3)
             mode = VirtualControllerMode::Switch2Pro;
+        else if (outputMode == 4)
+            mode = VirtualControllerMode::SwitchPro;
         m_controller->SetOutputMode(mode);
     }
 
@@ -741,6 +759,8 @@ void TrayApp::SaveSettings() {
         outputMode = 2u;
     else if (m_controller->GetOutputMode() == VirtualControllerMode::Switch2Pro)
         outputMode = 3u;
+    else if (m_controller->GetOutputMode() == VirtualControllerMode::SwitchPro)
+        outputMode = 4u;
     RegSetValueExW(key, L"OutputMode", 0, REG_DWORD,
                    reinterpret_cast<const BYTE*>(&outputMode), sizeof(outputMode));
     SaveBackButtonMappingsForCurrentMode(key);
@@ -853,6 +873,8 @@ void TrayApp::RefreshBackButtonMappingWindow() {
                        ? L"Back Button Mappings - DualSense"
                        : mode == VirtualControllerMode::Switch2Pro
                        ? L"Back Button Mappings - Switch 2 Pro"
+                       : mode == VirtualControllerMode::SwitchPro
+                       ? L"Back Button Mappings - Switch Pro"
                        : playStationMode ? L"Back Button Mappings - DualShock 4"
                                          : L"Back Button Mappings - Xbox 360");
 
@@ -873,6 +895,7 @@ void TrayApp::PopulateBackButtonCombo(HWND combo, BackButtonAction selected) {
     const VirtualControllerMode mode = m_controller->GetOutputMode();
     const bool playStationMode = IsPlayStationOutputMode(mode);
     const bool switchMode = IsSwitchOutputMode(mode);
+    const bool switch2Mode = IsSwitch2OutputMode(mode);
     int selectedIndex = 0;
     auto add = [&](const wchar_t* label, BackButtonAction action) {
         const int index = static_cast<int>(SendMessageW(combo, CB_ADDSTRING, 0,
@@ -901,7 +924,7 @@ void TrayApp::PopulateBackButtonCombo(HWND combo, BackButtonAction selected) {
     add(playStationMode ? L"Create / Share" : (switchMode ? L"Minus" : L"Back"), BackButtonAction::Back);
     add(playStationMode ? L"Options" : (switchMode ? L"Plus" : L"Start"), BackButtonAction::Start);
     add(playStationMode ? L"PS" : (switchMode ? L"Home" : L"Guide"), BackButtonAction::Guide);
-    if (switchMode) {
+    if (switch2Mode) {
         add(L"GL", BackButtonAction::GL);
         add(L"GR", BackButtonAction::GR);
     }
@@ -1153,6 +1176,9 @@ void TrayApp::ShowContextMenu() {
     AppendMenuW(outputMenu,
                 MF_STRING | (outputMode == VirtualControllerMode::Switch2Pro ? MF_CHECKED : MF_UNCHECKED),
                 IDM_OUTPUT_SWITCH2PRO, L"Switch 2 Pro Controller");
+    AppendMenuW(outputMenu,
+                MF_STRING | (outputMode == VirtualControllerMode::SwitchPro ? MF_CHECKED : MF_UNCHECKED),
+                IDM_OUTPUT_SWITCHPRO, L"Switch Pro Controller");
     AppendMenuW(outputMenu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(outputMenu,
                 MF_STRING | (outputMode == VirtualControllerMode::DualSense ? MF_ENABLED : MF_GRAYED),

@@ -20,6 +20,7 @@ bool IsViiperVersionSupported(const std::string& version);
 bool IsViiperDualShock4CompatibleVersion(const std::string& version);
 bool IsViiperDualSenseCompatibleVersion(const std::string& version);
 bool IsViiperSwitch2ProCompatibleVersion(const std::string& version);
+bool IsViiperSwitchProCompatibleVersion(const std::string& version);
 
 class ViiperClient {
 public:

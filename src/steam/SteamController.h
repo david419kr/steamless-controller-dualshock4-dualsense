@@ -69,6 +69,13 @@ struct SteamControllerSwitch2ProHaptics {
     uint8_t playerLedMask = 0;
 };
 
+struct SteamControllerSwitchProHaptics {
+    std::array<uint8_t, 4> leftRumble{};
+    std::array<uint8_t, 4> rightRumble{};
+    uint8_t flags = 0;
+    uint8_t playerLedMask = 0;
+};
+
 class SteamController {
 public:
     static constexpr double DUALSENSE_AUDIO_RUMBLE_THRESHOLD_DEFAULT = 0.45;
@@ -225,6 +232,7 @@ public:
                              uint8_t rightTriggerPosition);
     void SetDualSenseAudioHaptics(const SteamControllerDualSenseAudioHaptics& haptics);
     void SetSwitch2ProHaptics(const SteamControllerSwitch2ProHaptics& haptics);
+    void SetSwitchProHaptics(const SteamControllerSwitchProHaptics& haptics);
     void SetDualSenseAudioRumbleThreshold(double threshold);
     double GetDualSenseAudioRumbleThreshold() const;
     void ClearDualSenseHaptics();
@@ -301,4 +309,9 @@ private:
     bool            m_hasSwitch2ProRumbleState = false;
     std::chrono::steady_clock::time_point m_lastSwitch2ProLeftPulse{};
     std::chrono::steady_clock::time_point m_lastSwitch2ProRightPulse{};
+    std::array<uint8_t, 4> m_lastSwitchProLeftRumble{};
+    std::array<uint8_t, 4> m_lastSwitchProRightRumble{};
+    bool            m_hasSwitchProRumbleState = false;
+    std::chrono::steady_clock::time_point m_lastSwitchProLeftPulse{};
+    std::chrono::steady_clock::time_point m_lastSwitchProRightPulse{};
 };

@@ -71,6 +71,10 @@ void TestViiperRequestHelpers() {
            "Steamless-patched VIIPER v0.6.1 steamless4 remains DS4-compatible");
     Expect(IsViiperDualShock4CompatibleVersion("0.6.1-steamless5"),
            "Steamless-patched VIIPER v0.6.1 steamless5 remains DS4-compatible");
+    Expect(IsViiperDualShock4CompatibleVersion("0.6.1-steamless8"),
+           "Steamless-patched VIIPER v0.6.1 steamless8 remains DS4-compatible");
+    Expect(IsViiperDualShock4CompatibleVersion("0.6.1-steamless9"),
+           "Future Steamless-patched VIIPER versions remain DS4-compatible");
     Expect(IsViiperDualShock4CompatibleVersion("v0.6.2"),
            "Future VIIPER versions are treated as DS4-compatible");
     Expect(!IsViiperDualSenseCompatibleVersion("v0.6.1"),
@@ -83,6 +87,10 @@ void TestViiperRequestHelpers() {
            "Steamless5 VIIPER v0.6.1 is DualSense-compatible");
     Expect(IsViiperDualSenseCompatibleVersion("0.6.1-steamless7"),
            "Steamless7 VIIPER v0.6.1 remains DualSense-compatible");
+    Expect(IsViiperDualSenseCompatibleVersion("0.6.1-steamless8"),
+           "Steamless8 VIIPER v0.6.1 remains DualSense-compatible");
+    Expect(IsViiperDualSenseCompatibleVersion("0.6.1-steamless9"),
+           "Future Steamless-patched VIIPER versions remain DualSense-compatible");
     Expect(IsViiperDualSenseCompatibleVersion("v0.6.2"),
            "Future VIIPER versions are treated as DualSense-compatible");
     Expect(!IsViiperSwitch2ProCompatibleVersion("v0.6.1"),
@@ -91,8 +99,20 @@ void TestViiperRequestHelpers() {
            "Steamless6 VIIPER v0.6.1 lacks Switch 2 Pro support");
     Expect(IsViiperSwitch2ProCompatibleVersion("0.6.1-steamless7"),
            "Steamless7 VIIPER v0.6.1 is Switch 2 Pro-compatible");
+    Expect(IsViiperSwitch2ProCompatibleVersion("0.6.1-steamless8"),
+           "Steamless8 VIIPER v0.6.1 remains Switch 2 Pro-compatible");
+    Expect(IsViiperSwitch2ProCompatibleVersion("0.6.1-steamless9"),
+           "Future Steamless-patched VIIPER versions remain Switch 2 Pro-compatible");
     Expect(IsViiperSwitch2ProCompatibleVersion("v0.7.0"),
            "Upstream VIIPER v0.7.0 is treated as Switch 2 Pro-compatible");
+    Expect(!IsViiperSwitchProCompatibleVersion("0.6.1-steamless7"),
+           "Steamless7 VIIPER v0.6.1 lacks Switch Pro support");
+    Expect(IsViiperSwitchProCompatibleVersion("0.6.1-steamless8"),
+           "Steamless8 VIIPER v0.6.1 is Switch Pro-compatible");
+    Expect(IsViiperSwitchProCompatibleVersion("0.6.1-steamless9"),
+           "Future Steamless-patched VIIPER versions remain Switch Pro-compatible");
+    Expect(!IsViiperSwitchProCompatibleVersion("v0.7.0"),
+           "Upstream VIIPER v0.7.0 is not treated as Switch Pro-compatible");
 
     uint32_t busId = 0;
     std::string devId;
@@ -405,6 +425,86 @@ void TestSwitch2ProTrackpadDpadAndBackButtons() {
            "Switch 2 Pro R5 can map to GR");
 }
 
+void TestSwitchProMapping() {
+    SteamControllerState state{};
+    SetButtons(state,
+               SteamController::BTN_A | SteamController::BTN_B |
+                   SteamController::BTN_X | SteamController::BTN_Y |
+                   SteamController::BTN_MENU,
+               SteamController::BTN_VIEW | SteamController::BTN_LS |
+                   SteamController::BTN_RB,
+               SteamController::BTN_LB | SteamController::BTN_STEAM |
+                   SteamController::BTN_TP_RT_CLICK,
+               0);
+    state.leftTrigger = 32767;
+    state.rightTrigger = 16384;
+    state.leftStickX = 0;
+    state.leftStickY = 0;
+    state.rightStickX = 32767;
+    state.rightStickY = -32768;
+    state.hasImu = true;
+    state.gyroX = 11;
+    state.gyroY = 22;
+    state.gyroZ = 33;
+    state.accelX = 44;
+    state.accelY = 55;
+    state.accelZ = 66;
+
+    VirtualControllerRuntimeSettings settings{};
+    settings.backButtonMappings.Set(BackButtonId::L4, BackButtonAction::GL);
+    settings.backButtonMappings.Set(BackButtonId::R4, BackButtonAction::GR);
+
+    const ViiperSwitchProInputState input = BuildViiperSwitchProInput(state, settings);
+    ExpectEq(input.buttons,
+             (1u << 0) | (1u << 1) | (1u << 2) | (1u << 3) |
+                 (1u << 4) | (1u << 5) |
+                 (1u << 12) | (1u << 13) | (1u << 14) |
+                 (1u << 15) | (1u << 16) | (1u << 17),
+             "Switch Pro base button mapping has no C/GL/GR");
+    ExpectEq(input.leftStickX, 2048, "Switch Pro neutral LX");
+    ExpectEq(input.leftStickY, 2048, "Switch Pro neutral LY");
+    ExpectEq(input.rightStickX, 4095, "Switch Pro max RX");
+    ExpectEq(input.rightStickY, 4095, "Switch Pro inverted min RY");
+    Expect(input.gyroX == 11 && input.gyroY == 33 && input.gyroZ == -22,
+           "Switch Pro gyro axis mapping");
+    Expect(input.accelX == 44 && input.accelY == 66 && input.accelZ == -55,
+           "Switch Pro accel axis mapping");
+
+    const auto serialized = input.Serialize();
+    ExpectEq(serialized[0], input.buttons & 0xFF, "Switch Pro serialize buttons low");
+    ExpectEq(serialized[4], input.leftStickX & 0xFF, "Switch Pro serialize LX");
+    ExpectEq(serialized[18], 11, "Switch Pro serialize gyro X");
+}
+
+void TestSwitchProTrackpadDpadAndBackButtons() {
+    SteamControllerState state{};
+    SetButtons(state,
+               0,
+               SteamController::BTN_DPAD_UP | SteamController::BTN_R5,
+               SteamController::BTN_L4,
+               SteamController::BTN_TP_LT_CLICK);
+    state.leftPadX = -20000;
+    state.leftPadY = 0;
+
+    VirtualControllerRuntimeSettings settings{};
+    settings.trackpadDpadEnabled = true;
+    settings.useRightTrackpadForDpad = false;
+    settings.backButtonMappings.Set(BackButtonId::L4, BackButtonAction::GL);
+    settings.backButtonMappings.Set(BackButtonId::R5, BackButtonAction::RightTrigger);
+
+    const ViiperSwitchProInputState input = BuildViiperSwitchProInput(state, settings);
+    Expect((input.buttons & (1u << 11)) == 0,
+           "Switch Pro trackpad D-pad overrides physical up");
+    Expect((input.buttons & (1u << 10)) != 0,
+           "Switch Pro left trackpad maps to D-pad left");
+    Expect((input.buttons & (1u << 19)) == 0,
+           "Switch Pro GL action is no-op");
+    Expect((input.buttons & (1u << 18)) == 0,
+           "Switch Pro GR action is no-op");
+    Expect((input.buttons & (1u << 5)) != 0,
+           "Switch Pro back button can map to ZR");
+}
+
 ViiperDualShock4InputState BuildLeftTrackpadDpadDs4(int16_t x, int16_t y) {
     SteamControllerState state{};
     SetButtons(state, 0, 0, 0, SteamController::BTN_TP_LT_CLICK);
@@ -526,6 +626,27 @@ void TestFeedbackDecoding() {
     ExpectEq(switch2.rightRumble[15], 0x40, "Switch 2 Pro right rumble tail");
     ExpectEq(switch2.flags, 0x01, "Switch 2 Pro feedback flags");
     ExpectEq(switch2.playerLedMask, 0x0F, "Switch 2 Pro player LED mask");
+
+    uint8_t ns[10] = {};
+    ns[0] = 0x00;
+    ns[1] = 0x01;
+    ns[2] = 0x40;
+    ns[3] = 0x40;
+    ns[4] = 0x22;
+    ns[5] = 0x33;
+    ns[6] = 0x44;
+    ns[7] = 0x55;
+    ns[8] = 0x01;
+    ns[9] = 0x03;
+    ViiperSwitchProFeedbackState switchPro{};
+    Expect(DecodeViiperSwitchProFeedback(ns, sizeof(ns), switchPro),
+           "Switch Pro feedback decode");
+    ExpectEq(switchPro.leftRumble[0], 0x00, "Switch Pro left rumble head");
+    ExpectEq(switchPro.leftRumble[3], 0x40, "Switch Pro left rumble tail");
+    ExpectEq(switchPro.rightRumble[0], 0x22, "Switch Pro right rumble head");
+    ExpectEq(switchPro.rightRumble[3], 0x55, "Switch Pro right rumble tail");
+    ExpectEq(switchPro.flags, 0x01, "Switch Pro feedback flags");
+    ExpectEq(switchPro.playerLedMask, 0x03, "Switch Pro player LED mask");
 }
 
 } // namespace
@@ -540,6 +661,8 @@ int main() {
     TestDualSenseTouchSuppressionAndBackButtons();
     TestSwitch2ProMapping();
     TestSwitch2ProTrackpadDpadAndBackButtons();
+    TestSwitchProMapping();
+    TestSwitchProTrackpadDpadAndBackButtons();
     TestTrackpadDpadSectorWidths();
     TestFeedbackDecoding();
 

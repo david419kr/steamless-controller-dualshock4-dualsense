@@ -20,7 +20,8 @@ static uint8_t TriggerToByte(int16_t raw) {
 static bool IsMotionOutputMode(VirtualControllerMode mode) {
     return mode == VirtualControllerMode::DualShock4 ||
            mode == VirtualControllerMode::DualSense ||
-           mode == VirtualControllerMode::Switch2Pro;
+           mode == VirtualControllerMode::Switch2Pro ||
+           mode == VirtualControllerMode::SwitchPro;
 }
 
 static SteamControllerDualSenseHaptics ToSteamHaptics(const ViiperDualSenseFeedbackState& feedback) {
@@ -51,6 +52,16 @@ static SteamControllerDualSenseAudioHaptics ToSteamAudioHaptics(
 static SteamControllerSwitch2ProHaptics ToSteamSwitch2ProHaptics(
     const ViiperSwitch2ProFeedbackState& feedback) {
     SteamControllerSwitch2ProHaptics haptics{};
+    haptics.leftRumble = feedback.leftRumble;
+    haptics.rightRumble = feedback.rightRumble;
+    haptics.flags = feedback.flags;
+    haptics.playerLedMask = feedback.playerLedMask;
+    return haptics;
+}
+
+static SteamControllerSwitchProHaptics ToSteamSwitchProHaptics(
+    const ViiperSwitchProFeedbackState& feedback) {
+    SteamControllerSwitchProHaptics haptics{};
     haptics.leftRumble = feedback.leftRumble;
     haptics.rightRumble = feedback.rightRumble;
     haptics.flags = feedback.flags;
@@ -530,6 +541,8 @@ void ControllerManager::HandleVirtualFeedback(const ViiperFeedbackState& feedbac
                                     m_lastRightTriggerPosition.load(std::memory_order_relaxed));
     } else if (feedback.mode == VirtualControllerMode::Switch2Pro) {
         g_ctrl->SetSwitch2ProHaptics(ToSteamSwitch2ProHaptics(feedback.switch2Pro));
+    } else if (feedback.mode == VirtualControllerMode::SwitchPro) {
+        g_ctrl->SetSwitchProHaptics(ToSteamSwitchProHaptics(feedback.switchPro));
     } else {
         g_ctrl->SetRumble(feedback.largeMotor, feedback.smallMotor);
     }

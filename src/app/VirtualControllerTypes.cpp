@@ -526,6 +526,65 @@ void ApplyBackButtonActionSwitch2Pro(BackButtonAction action,
     }
 }
 
+void ApplyBackButtonActionSwitchPro(BackButtonAction action,
+                                    ViiperSwitchProInputState& state) {
+    switch (action) {
+    case BackButtonAction::DpadUp:
+        state.buttons |= NS2_BUTTON_UP;
+        break;
+    case BackButtonAction::DpadDown:
+        state.buttons |= NS2_BUTTON_DOWN;
+        break;
+    case BackButtonAction::DpadLeft:
+        state.buttons |= NS2_BUTTON_LEFT;
+        break;
+    case BackButtonAction::DpadRight:
+        state.buttons |= NS2_BUTTON_RIGHT;
+        break;
+    case BackButtonAction::South:
+        state.buttons |= NS2_BUTTON_B;
+        break;
+    case BackButtonAction::East:
+        state.buttons |= NS2_BUTTON_A;
+        break;
+    case BackButtonAction::West:
+        state.buttons |= NS2_BUTTON_Y;
+        break;
+    case BackButtonAction::North:
+        state.buttons |= NS2_BUTTON_X;
+        break;
+    case BackButtonAction::LeftBumper:
+        state.buttons |= NS2_BUTTON_L;
+        break;
+    case BackButtonAction::RightBumper:
+        state.buttons |= NS2_BUTTON_R;
+        break;
+    case BackButtonAction::LeftTrigger:
+        state.buttons |= NS2_BUTTON_ZL;
+        break;
+    case BackButtonAction::RightTrigger:
+        state.buttons |= NS2_BUTTON_ZR;
+        break;
+    case BackButtonAction::LeftStick:
+        state.buttons |= NS2_BUTTON_LEFT_STICK;
+        break;
+    case BackButtonAction::RightStick:
+        state.buttons |= NS2_BUTTON_RIGHT_STICK;
+        break;
+    case BackButtonAction::Back:
+        state.buttons |= NS2_BUTTON_MINUS;
+        break;
+    case BackButtonAction::Start:
+        state.buttons |= NS2_BUTTON_PLUS;
+        break;
+    case BackButtonAction::Guide:
+        state.buttons |= NS2_BUTTON_HOME;
+        break;
+    default:
+        break;
+    }
+}
+
 void ApplyBackButtonMappingsX360(const SteamControllerState& rawState,
                                  const BackButtonMappings& mappings,
                                  ViiperXbox360InputState& state) {
@@ -569,6 +628,17 @@ void ApplyBackButtonMappingsSwitch2Pro(const SteamControllerState& rawState,
         const BackButtonAction action = mappings.Get(id);
         if (action != BackButtonAction::None && BackButtonPressed(rawState, id))
             ApplyBackButtonActionSwitch2Pro(action, state);
+    }
+}
+
+void ApplyBackButtonMappingsSwitchPro(const SteamControllerState& rawState,
+                                      const BackButtonMappings& mappings,
+                                      ViiperSwitchProInputState& state) {
+    for (uint8_t i = 0; i < static_cast<uint8_t>(BackButtonId::Count); ++i) {
+        const auto id = static_cast<BackButtonId>(i);
+        const BackButtonAction action = mappings.Get(id);
+        if (action != BackButtonAction::None && BackButtonPressed(rawState, id))
+            ApplyBackButtonActionSwitchPro(action, state);
     }
 }
 
@@ -656,6 +726,22 @@ std::array<uint8_t, 33> ViiperDualSenseInputState::Serialize() const {
 }
 
 std::array<uint8_t, 24> ViiperSwitch2ProInputState::Serialize() const {
+    std::array<uint8_t, 24> data{};
+    PutU32(data.data(), buttons);
+    PutU16(data.data() + 4, leftStickX);
+    PutU16(data.data() + 6, leftStickY);
+    PutU16(data.data() + 8, rightStickX);
+    PutU16(data.data() + 10, rightStickY);
+    PutI16(data.data() + 12, accelX);
+    PutI16(data.data() + 14, accelY);
+    PutI16(data.data() + 16, accelZ);
+    PutI16(data.data() + 18, gyroX);
+    PutI16(data.data() + 20, gyroY);
+    PutI16(data.data() + 22, gyroZ);
+    return data;
+}
+
+std::array<uint8_t, 24> ViiperSwitchProInputState::Serialize() const {
     std::array<uint8_t, 24> data{};
     PutU32(data.data(), buttons);
     PutU16(data.data() + 4, leftStickX);
@@ -964,6 +1050,64 @@ ViiperSwitch2ProInputState BuildViiperSwitch2ProInput(
     return out;
 }
 
+ViiperSwitchProInputState BuildViiperSwitchProInput(
+    const SteamControllerState& state,
+    const VirtualControllerRuntimeSettings& settings) {
+    ViiperSwitchProInputState out{};
+    out.leftStickX = AxisToSwitchStick(state.leftStickX, false);
+    out.leftStickY = AxisToSwitchStick(state.leftStickY, true);
+    out.rightStickX = AxisToSwitchStick(state.rightStickX, false);
+    out.rightStickY = AxisToSwitchStick(state.rightStickY, true);
+
+    const uint8_t b0 = ButtonByte(state, 0);
+    const uint8_t b1 = ButtonByte(state, 1);
+    const uint8_t b2 = ButtonByte(state, 2);
+    const uint8_t b3 = ButtonByte(state, 3);
+
+    const bool rawRightClick = (b2 & SteamController::BTN_TP_RT_CLICK) != 0;
+    const bool rawLeftClick = (b3 & SteamController::BTN_TP_LT_CLICK) != 0;
+
+    // Nintendo labels are physically opposite from Xbox-style face labels.
+    // Preserve physical position: south/east/west/north -> B/A/Y/X.
+    if (b0 & SteamController::BTN_A) out.buttons |= NS2_BUTTON_B;
+    if (b0 & SteamController::BTN_B) out.buttons |= NS2_BUTTON_A;
+    if (b0 & SteamController::BTN_X) out.buttons |= NS2_BUTTON_Y;
+    if (b0 & SteamController::BTN_Y) out.buttons |= NS2_BUTTON_X;
+    if (b2 & SteamController::BTN_LB) out.buttons |= NS2_BUTTON_L;
+    if (b1 & SteamController::BTN_RB) out.buttons |= NS2_BUTTON_R;
+    if (b1 & SteamController::BTN_VIEW) out.buttons |= NS2_BUTTON_MINUS;
+    if (b0 & SteamController::BTN_MENU) out.buttons |= NS2_BUTTON_CAPTURE;
+    if (b1 & SteamController::BTN_LS) out.buttons |= NS2_BUTTON_LEFT_STICK;
+    if (b0 & SteamController::BTN_RS) out.buttons |= NS2_BUTTON_RIGHT_STICK;
+    if (b2 & SteamController::BTN_STEAM) out.buttons |= NS2_BUTTON_HOME;
+    if (TriggerToByte(state.leftTrigger) > 0) out.buttons |= NS2_BUTTON_ZL;
+    if (TriggerToByte(state.rightTrigger) > 0) out.buttons |= NS2_BUTTON_ZR;
+
+    DpadDirection dpad = PhysicalDpadDirection(state);
+    if (settings.trackpadDpadEnabled) {
+        const DpadDirection trackpadDpad = settings.useRightTrackpadForDpad
+            ? TrackpadDpadDirection(state.rightPadX, state.rightPadY, rawRightClick)
+            : TrackpadDpadDirection(state.leftPadX, state.leftPadY, rawLeftClick);
+        if (trackpadDpad != DpadDirection::None)
+            dpad = trackpadDpad;
+    }
+    out.buttons &= ~(NS2_BUTTON_UP | NS2_BUTTON_DOWN |
+                     NS2_BUTTON_LEFT | NS2_BUTTON_RIGHT);
+    out.buttons |= SwitchDpadButtons(dpad);
+
+    if (state.hasImu) {
+        out.gyroX = state.gyroX;
+        out.gyroY = state.gyroZ;
+        out.gyroZ = NegI16(state.gyroY);
+        out.accelX = state.accelX;
+        out.accelY = state.accelZ;
+        out.accelZ = NegI16(state.accelY);
+    }
+
+    ApplyBackButtonMappingsSwitchPro(state, settings.backButtonMappings, out);
+    return out;
+}
+
 bool DecodeViiperXbox360Feedback(const uint8_t* data,
                                  size_t size,
                                  uint8_t& largeMotor,
@@ -1037,5 +1181,18 @@ bool DecodeViiperSwitch2ProFeedback(const uint8_t* data,
     std::copy(data + 16, data + 32, feedback.rightRumble.begin());
     feedback.flags = data[32];
     feedback.playerLedMask = data[33];
+    return true;
+}
+
+bool DecodeViiperSwitchProFeedback(const uint8_t* data,
+                                   size_t size,
+                                   ViiperSwitchProFeedbackState& feedback) {
+    if (!data || size < 10)
+        return false;
+
+    std::copy(data, data + 4, feedback.leftRumble.begin());
+    std::copy(data + 4, data + 8, feedback.rightRumble.begin());
+    feedback.flags = data[8];
+    feedback.playerLedMask = data[9];
     return true;
 }

@@ -318,6 +318,31 @@ bool ParseVersionParts(const std::string& version, int& major, int& minor, int& 
     return true;
 }
 
+int ParseSteamlessPatchNumber(const std::string& version) {
+    std::string lower = version;
+    std::transform(lower.begin(), lower.end(), lower.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+    const std::string marker = "steamless";
+    const size_t pos = lower.find(marker);
+    if (pos == std::string::npos)
+        return -1;
+
+    size_t i = pos + marker.size();
+    int value = 0;
+    bool foundDigit = false;
+    while (i < lower.size() && lower[i] >= '0' && lower[i] <= '9') {
+        foundDigit = true;
+        value = value * 10 + static_cast<int>(lower[i] - '0');
+        ++i;
+    }
+    return foundDigit ? value : -1;
+}
+
+bool HasSteamlessPatchAtLeast(const std::string& version, int minimum) {
+    return ParseSteamlessPatchNumber(version) >= minimum;
+}
+
 } // namespace
 
 std::string BuildViiperRequest(const std::string& path, const std::string& payload) {
@@ -393,14 +418,7 @@ bool IsViiperDualShock4CompatibleVersion(const std::string& version) {
     if (patch != 1)
         return patch > 1;
 
-    std::string lower = version;
-    std::transform(lower.begin(), lower.end(), lower.begin(),
-                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    return lower.find("steamless3") != std::string::npos ||
-           lower.find("steamless4") != std::string::npos ||
-           lower.find("steamless5") != std::string::npos ||
-           lower.find("steamless6") != std::string::npos ||
-           lower.find("steamless7") != std::string::npos;
+    return HasSteamlessPatchAtLeast(version, 3);
 }
 
 bool IsViiperDualSenseCompatibleVersion(const std::string& version) {
@@ -417,12 +435,7 @@ bool IsViiperDualSenseCompatibleVersion(const std::string& version) {
     if (patch != 1)
         return patch > 1;
 
-    std::string lower = version;
-    std::transform(lower.begin(), lower.end(), lower.begin(),
-                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    return lower.find("steamless5") != std::string::npos ||
-           lower.find("steamless6") != std::string::npos ||
-           lower.find("steamless7") != std::string::npos;
+    return HasSteamlessPatchAtLeast(version, 5);
 }
 
 bool IsViiperSwitch2ProCompatibleVersion(const std::string& version) {
@@ -439,10 +452,22 @@ bool IsViiperSwitch2ProCompatibleVersion(const std::string& version) {
     if (patch != 1)
         return patch > 1;
 
-    std::string lower = version;
-    std::transform(lower.begin(), lower.end(), lower.begin(),
-                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    return lower.find("steamless7") != std::string::npos;
+    return HasSteamlessPatchAtLeast(version, 7);
+}
+
+bool IsViiperSwitchProCompatibleVersion(const std::string& version) {
+    int major = 0;
+    int minor = 0;
+    int patch = 0;
+    if (!ParseVersionParts(version, major, minor, patch))
+        return false;
+
+    if (major != 0)
+        return false;
+    if (minor != 6 || patch != 1)
+        return false;
+
+    return HasSteamlessPatchAtLeast(version, 8);
 }
 
 ViiperClient::~ViiperClient() {
@@ -571,6 +596,11 @@ bool ViiperClient::PingServer(VirtualControllerMode mode, std::string* version) 
         SetError(VirtualControllerError::ViiperUnsupported, nullptr);
         return false;
     }
+    if (mode == VirtualControllerMode::SwitchPro &&
+        !IsViiperSwitchProCompatibleVersion(ver)) {
+        SetError(VirtualControllerError::ViiperUnsupported, nullptr);
+        return false;
+    }
     if (version)
         *version = ver;
     m_error = VirtualControllerError::None;
@@ -663,6 +693,8 @@ bool ViiperClient::AddDevice(VirtualControllerMode mode) {
         type = "dualsense";
     else if (mode == VirtualControllerMode::Switch2Pro)
         type = "ns2pro";
+    else if (mode == VirtualControllerMode::SwitchPro)
+        type = "nspro";
     const std::string payload = std::string("{\"type\":\"") + type + "\"}";
     std::ostringstream path;
     path << "bus/" << m_busId << "/add";
@@ -731,6 +763,8 @@ void ViiperClient::FeedbackLoop(VirtualControllerMode mode, std::uintptr_t strea
         feedbackSize = 7u;
     else if (mode == VirtualControllerMode::Switch2Pro)
         feedbackSize = 34u;
+    else if (mode == VirtualControllerMode::SwitchPro)
+        feedbackSize = 10u;
     std::array<uint8_t, 64> buffer{};
     const SOCKET socket = ToSocket(streamSocket);
 
@@ -779,6 +813,9 @@ void ViiperClient::FeedbackLoop(VirtualControllerMode mode, std::uintptr_t strea
         } else if (mode == VirtualControllerMode::Switch2Pro) {
             ok = DecodeViiperSwitch2ProFeedback(buffer.data(), feedbackSize,
                                                 feedback.switch2Pro);
+        } else if (mode == VirtualControllerMode::SwitchPro) {
+            ok = DecodeViiperSwitchProFeedback(buffer.data(), feedbackSize,
+                                               feedback.switchPro);
         } else {
             ok = DecodeViiperXbox360Feedback(buffer.data(), feedbackSize,
                                              feedback.largeMotor,

@@ -13,6 +13,8 @@ const char* ModeName(VirtualControllerMode mode) {
         return "DualSense";
     case VirtualControllerMode::Switch2Pro:
         return "Switch 2 Pro";
+    case VirtualControllerMode::SwitchPro:
+        return "Switch Pro";
     default:
         return "Xbox 360";
     }
@@ -111,6 +113,10 @@ void VirtualController::Update(const SteamControllerState& state) {
         ok = m_viiper.SendInput(data.data(), data.size());
     } else if (m_mode == VirtualControllerMode::Switch2Pro) {
         const ViiperSwitch2ProInputState input = BuildViiperSwitch2ProInput(state, settings);
+        const auto data = input.Serialize();
+        ok = m_viiper.SendInput(data.data(), data.size());
+    } else if (m_mode == VirtualControllerMode::SwitchPro) {
+        const ViiperSwitchProInputState input = BuildViiperSwitchProInput(state, settings);
         const auto data = input.Serialize();
         ok = m_viiper.SendInput(data.data(), data.size());
     } else {
