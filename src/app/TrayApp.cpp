@@ -28,6 +28,40 @@ static constexpr int DUALSENSE_RUMBLE_THRESHOLD_MAX = 100;
 static constexpr int DUALSENSE_RUMBLE_THRESHOLD_DEFAULT = 45;
 static constexpr int PROCON2_RUMBLE_THRESHOLD_DEFAULT = 34;
 
+static int BuildMonthFromDate(const char* date) {
+    switch (date[0]) {
+    case 'A': return date[1] == 'p' ? 4 : 8;
+    case 'D': return 12;
+    case 'F': return 2;
+    case 'J': return date[1] == 'a' ? 1 : (date[2] == 'n' ? 6 : 7);
+    case 'M': return date[2] == 'r' ? 3 : 5;
+    case 'N': return 11;
+    case 'O': return 10;
+    case 'S': return 9;
+    default: return 1;
+    }
+}
+
+static void AppendTwoDigits(std::wstring& text, int value) {
+    text.push_back(static_cast<wchar_t>(L'0' + (value / 10) % 10));
+    text.push_back(static_cast<wchar_t>(L'0' + value % 10));
+}
+
+static std::wstring BuildLabel() {
+    const char* date = __DATE__;
+    const int year = (date[9] - '0') * 10 + (date[10] - '0');
+    const int month = BuildMonthFromDate(date);
+    const int day = date[4] == ' '
+                  ? date[5] - '0'
+                  : (date[4] - '0') * 10 + (date[5] - '0');
+
+    std::wstring label = L"Build ";
+    AppendTwoDigits(label, year);
+    AppendTwoDigits(label, month);
+    AppendTwoDigits(label, day);
+    return label;
+}
+
 static bool IsBackButtonComboId(UINT id) {
     return id >= BACKMAP_L4_ID && id <= BACKMAP_R5_ID;
 }
@@ -1451,6 +1485,8 @@ void TrayApp::ShowContextMenu() {
     AppendMenuW(menu, startupFlags, IDM_STARTUP, L"Start with Windows");
 
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    const std::wstring buildLabel = BuildLabel();
+    AppendMenuW(menu, MF_STRING | MF_GRAYED, IDM_BUILD_INFO, buildLabel.c_str());
     AppendMenuW(menu, MF_STRING, IDM_EXIT, L"Exit");
 
     // SetForegroundWindow is required for the menu to dismiss on click-away.

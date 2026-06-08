@@ -97,6 +97,7 @@ private:
     static constexpr UINT IDM_DUALSENSE_SETTINGS = 1016;
     static constexpr UINT IDM_AUTO_ENABLE = 1020;
     static constexpr UINT IDM_AUTO_RESTART_STEAM = 1021;
+    static constexpr UINT IDM_BUILD_INFO = 1022;
     static constexpr UINT IDC_BACKMAP_L4 = 2001;
     static constexpr UINT IDC_BACKMAP_L5 = 2002;
     static constexpr UINT IDC_BACKMAP_R4 = 2003;
