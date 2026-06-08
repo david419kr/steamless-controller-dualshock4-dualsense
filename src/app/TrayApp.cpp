@@ -366,7 +366,7 @@ static bool IsSwitch2OutputMode(VirtualControllerMode mode) {
 }
 
 static bool IsTrackpadDpadLockingOutputMode(VirtualControllerMode mode) {
-    return IsPlayStationOutputMode(mode) || IsSwitchOutputMode(mode);
+    return IsPlayStationOutputMode(mode);
 }
 
 static int ThresholdToSliderPosition(double threshold) {

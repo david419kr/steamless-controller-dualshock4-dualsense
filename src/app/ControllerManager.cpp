@@ -324,7 +324,9 @@ bool ControllerManager::IsTrackpadDpadActive() const {
 }
 
 bool ControllerManager::ShouldTrackpadDpadLockMouse() const {
-    return IsMotionOutputMode(m_outputMode) && IsTrackpadDpadActive();
+    return (m_outputMode == VirtualControllerMode::DualShock4 ||
+            m_outputMode == VirtualControllerMode::DualSense) &&
+           IsTrackpadDpadActive();
 }
 
 bool ControllerManager::ShouldLinkTrackpadSidesForXbox() const {
