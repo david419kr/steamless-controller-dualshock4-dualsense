@@ -8,9 +8,6 @@ build-*/
 *.lib
 *.pdb
 
-# Claude Code local settings
-.claude/
-
 # Reverse engineering session data
 Results/
 HIDInfo
