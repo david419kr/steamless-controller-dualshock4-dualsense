@@ -5,7 +5,7 @@
 #define MyAppName "SteamlessController"
 #define MyAppVersion "1.0"
 #define MyAppPublisher "SteamlessController contributors"
-#define MyAppURL "https://github.com/david419kr/steamless-controller-dualshock4"
+#define MyAppURL "https://github.com/david419kr/steamless-controller-XB-PS-NS"
 #define MyAppExeName "SteamlessController.exe"
 #ifndef MyBuildDir
 #define MyBuildDir "..\build\release\Release"

@@ -30,6 +30,8 @@ private:
     void ShowContextMenu();
     void RestartSteam(bool launchIfNotRunning);
     void MaybeAutoEnableSteamlessMode();
+    void CheckForUpdates();
+    void HandleUpdateCheckResult(LPARAM lp);
     void LoadSettings();
     void SaveSettings();
     void LoadBackButtonMappingsForCurrentMode();
@@ -75,6 +77,7 @@ private:
     bool                               m_autoRestartSteam = false;
     bool                               m_autoEnableSuppressedUntilReconnect = false;
     bool                               m_autoEnableAttemptedForConnection = false;
+    bool                               m_updateCheckInProgress = false;
 
     static constexpr UINT IDM_TOGGLE        = 1001;
     static constexpr UINT IDM_EXIT          = 1002;
@@ -109,6 +112,7 @@ private:
     static constexpr UINT IDC_PROCON2_RUMBLE_THRESHOLD_VALUE = 2112;
     static constexpr UINT IDC_PROCON2_RUMBLE_THRESHOLD_RESET = 2113;
     static constexpr UINT WM_TRAY          = WM_APP + 1;
+    static constexpr UINT WM_UPDATE_CHECK_RESULT = WM_APP + 2;
     static constexpr UINT TRAY_UID         = 1;
     static constexpr UINT_PTR DEVICE_POLL_TIMER_ID = 3001;
     static constexpr UINT DEVICE_POLL_INTERVAL_MS = 1000;

@@ -6,7 +6,7 @@ This fork turns a Steam Controller into a virtual Xbox 360, DualShock 4, experim
 
 ## Release Installer Usage
 
-1. Download `SteamlessController-Setup.exe` from the [latest release](https://github.com/david419kr/steamless-controller-dualshock4-dualsense/releases/latest) and install it.
+1. Download `SteamlessController-Setup.exe` from the [latest release](https://github.com/david419kr/steamless-controller-XB-PS-NS/releases/latest) and install it.
 2. Reboot Windows once after installation.
 3. Connect the Steam Controller 2026 by USB or through the wireless Puck.
 4. From the tray menu, choose `Output Mode -> DualShock 4`, `Output Mode -> DualSense`, or `Output Mode -> Switch Pro Controller`, then enable `Steamless Mode`.
@@ -100,8 +100,8 @@ When **Steamless Mode** is active, the app disables the controller's built-in ke
 Build the app plus patched sidecar with the preset:
 
 ```bat
-git clone https://github.com/david419kr/steamless-controller-dualshock4-dualsense.git
-cd steamless-controller-dualshock4-dualsense
+git clone https://github.com/david419kr/steamless-controller-XB-PS-NS.git
+cd steamless-controller-XB-PS-NS
 cmake --preset release
 cmake --build --preset release
 ```
@@ -127,6 +127,8 @@ powershell -ExecutionPolicy Bypass -File tools\build-installer.ps1
 The installer output is `build\installer\SteamlessController-Setup.exe`. It installs VC++ and usbip-win2 automatically when missing. HidHide is presented as an optional task and is checked by default because it is recommended for Steam duplicate-input prevention.
 
 The build script downloads the prerequisite installers into `build\prereqs`, writes `build\prereqs\prereqs.json` with source URLs and SHA-256 hashes, then compiles `resources\InnoInstallerScript.iss` with Inno Setup 6. If `ISCC.exe` is not on `PATH`, install Inno Setup 6 first.
+
+Release tags should use the app build label format, such as `Build 260609`. The tray menu shows `Build YYMMDD (Check Update)` and checks GitHub releases against that tag. If the current build tag is not published as a release, the app treats the build as up to date.
 
 You can also use the CMake preset after configuring:
 

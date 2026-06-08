@@ -4,7 +4,7 @@
 
 ## 릴리즈 설치 방법
 
-1. [최신 릴리즈](https://github.com/david419kr/steamless-controller-dualshock4-dualsense/releases/latest)에서 `SteamlessController-Setup.exe`를 내려받아 설치합니다.
+1. [최신 릴리즈](https://github.com/david419kr/steamless-controller-XB-PS-NS/releases/latest)에서 `SteamlessController-Setup.exe`를 내려받아 설치합니다.
 2. 설치가 끝나면 Windows를 한 번 재부팅합니다.
 3. Steam Controller 2026을 유선 또는 무선 Puck으로 연결합니다.
 4. 트레이 메뉴에서 `Output Mode -> DualShock 4`, `Output Mode -> DualSense`, 또는 `Output Mode -> Switch Pro Controller`를 선택하고 `Enable Steamless Mode`를 켭니다.
@@ -68,6 +68,8 @@ powershell -ExecutionPolicy Bypass -File tools\build-installer.ps1
 출력 파일은 `build\installer\SteamlessController-Setup.exe`입니다. 설치 시 VC++ runtime과 usbip-win2는 없으면 자동 설치하고, HidHide는 선택 항목으로 표시하되 기본 체크 상태입니다. HidHide는 Steam 중복 입력 방지에 권장됩니다.
 
 이 스크립트는 prerequisite 설치 파일을 `build\prereqs`에 내려받고, URL과 SHA-256 해시를 `build\prereqs\prereqs.json`에 기록한 뒤 Inno Setup 6으로 `resources\InnoInstallerScript.iss`를 컴파일합니다. `ISCC.exe`가 `PATH`에 없으면 Inno Setup 6을 먼저 설치해야 합니다.
+
+릴리즈 태그는 앱 빌드 표시 형식과 같은 `Build 260609` 형식을 사용합니다. 트레이 메뉴에는 `Build YYMMDD (Check Update)`가 표시되며, 클릭하면 GitHub 릴리즈에서 해당 태그보다 최신 릴리즈가 있는지 확인합니다. 현재 빌드 태그가 릴리즈에 없으면 최신 빌드로 간주합니다.
 
 이미 CMake configure가 끝난 상태라면 다음 preset도 사용할 수 있습니다.
 

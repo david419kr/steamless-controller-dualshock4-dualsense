@@ -5,15 +5,24 @@
 #include <shellapi.h>
 #include <dbt.h>
 #include <winreg.h>
+#include <winhttp.h>
 #include <tlhelp32.h>
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstring>
 #include <string>
 #include <thread>
 #include <utility>
 
 static TrayApp* g_app = nullptr;
+static constexpr wchar_t GITHUB_API_HOST[] = L"api.github.com";
+static constexpr wchar_t GITHUB_CURRENT_RELEASE_API_PATH_PREFIX[] =
+    L"/repos/david419kr/steamless-controller-XB-PS-NS/releases/tags/Build%20";
+static constexpr wchar_t GITHUB_LATEST_RELEASE_API_PATH[] =
+    L"/repos/david419kr/steamless-controller-XB-PS-NS/releases/latest";
+static constexpr wchar_t GITHUB_LATEST_RELEASE_URL[] =
+    L"https://github.com/david419kr/steamless-controller-XB-PS-NS/releases/latest";
 
 static constexpr wchar_t WNDCLASS_NAME[] = L"SteamlessControllerTray";
 static constexpr wchar_t BACKBUTTON_WNDCLASS_NAME[] = L"SteamlessControllerBackButtonMappings";
@@ -47,19 +56,253 @@ static void AppendTwoDigits(std::wstring& text, int value) {
     text.push_back(static_cast<wchar_t>(L'0' + value % 10));
 }
 
-static std::wstring BuildLabel() {
+static int BuildDateCode() {
     const char* date = __DATE__;
     const int year = (date[9] - '0') * 10 + (date[10] - '0');
     const int month = BuildMonthFromDate(date);
     const int day = date[4] == ' '
                   ? date[5] - '0'
                   : (date[4] - '0') * 10 + (date[5] - '0');
+    return year * 10000 + month * 100 + day;
+}
 
+static std::wstring BuildLabel() {
+    const int code = BuildDateCode();
     std::wstring label = L"Build ";
-    AppendTwoDigits(label, year);
-    AppendTwoDigits(label, month);
-    AppendTwoDigits(label, day);
+    AppendTwoDigits(label, code / 10000);
+    AppendTwoDigits(label, (code / 100) % 100);
+    AppendTwoDigits(label, code % 100);
     return label;
+}
+
+static std::wstring BuildMenuLabel() {
+    return BuildLabel() + L" (Check Update)";
+}
+
+static bool ParseBuildTag(const std::string& tag, int& code) {
+    static constexpr char prefix[] = "Build ";
+    if (tag.size() != std::strlen(prefix) + 6 ||
+        tag.compare(0, std::strlen(prefix), prefix) != 0) {
+        return false;
+    }
+
+    int parsed = 0;
+    for (size_t i = std::strlen(prefix); i < tag.size(); ++i) {
+        if (tag[i] < '0' || tag[i] > '9')
+            return false;
+        parsed = parsed * 10 + (tag[i] - '0');
+    }
+
+    code = parsed;
+    return true;
+}
+
+static bool FindJsonStringValue(const std::string& json, const char* key, std::string& value) {
+    std::string needle = "\"";
+    needle += key;
+    needle += "\"";
+
+    size_t pos = json.find(needle);
+    if (pos == std::string::npos)
+        return false;
+
+    pos = json.find(':', pos + needle.size());
+    if (pos == std::string::npos)
+        return false;
+
+    ++pos;
+    while (pos < json.size() &&
+           (json[pos] == ' ' || json[pos] == '\r' || json[pos] == '\n' || json[pos] == '\t')) {
+        ++pos;
+    }
+    if (pos >= json.size() || json[pos] != '"')
+        return false;
+
+    value.clear();
+    ++pos;
+    while (pos < json.size()) {
+        const char ch = json[pos++];
+        if (ch == '"')
+            return true;
+        if (ch == '\\' && pos < json.size()) {
+            value.push_back(json[pos++]);
+        } else {
+            value.push_back(ch);
+        }
+    }
+
+    return false;
+}
+
+class WinHttpHandle {
+public:
+    WinHttpHandle() = default;
+    explicit WinHttpHandle(HINTERNET handle) : m_handle(handle) {}
+    ~WinHttpHandle() { Reset(); }
+    WinHttpHandle(const WinHttpHandle&) = delete;
+    WinHttpHandle& operator=(const WinHttpHandle&) = delete;
+
+    HINTERNET Get() const { return m_handle; }
+    explicit operator bool() const { return m_handle != nullptr; }
+
+    void Reset(HINTERNET handle = nullptr) {
+        if (m_handle)
+            WinHttpCloseHandle(m_handle);
+        m_handle = handle;
+    }
+
+private:
+    HINTERNET m_handle = nullptr;
+};
+
+struct HttpResponse {
+    DWORD status = 0;
+    DWORD error = ERROR_SUCCESS;
+    std::string body;
+};
+
+static HttpResponse HttpGetGitHubApi(const wchar_t* path) {
+    HttpResponse response{};
+
+    WinHttpHandle session(WinHttpOpen(L"SteamlessController/1.0",
+                                      WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+                                      WINHTTP_NO_PROXY_NAME,
+                                      WINHTTP_NO_PROXY_BYPASS,
+                                      0));
+    if (!session) {
+        response.error = GetLastError();
+        return response;
+    }
+    WinHttpSetTimeouts(session.Get(), 3000, 3000, 5000, 5000);
+
+    WinHttpHandle connection(WinHttpConnect(session.Get(),
+                                           GITHUB_API_HOST,
+                                           INTERNET_DEFAULT_HTTPS_PORT,
+                                           0));
+    if (!connection) {
+        response.error = GetLastError();
+        return response;
+    }
+
+    const wchar_t* acceptTypes[] = {L"application/vnd.github+json", nullptr};
+    WinHttpHandle request(WinHttpOpenRequest(connection.Get(),
+                                            L"GET",
+                                            path,
+                                            nullptr,
+                                            WINHTTP_NO_REFERER,
+                                            acceptTypes,
+                                            WINHTTP_FLAG_SECURE));
+    if (!request) {
+        response.error = GetLastError();
+        return response;
+    }
+
+    static constexpr wchar_t headers[] =
+        L"User-Agent: SteamlessController\r\n"
+        L"Accept: application/vnd.github+json\r\n"
+        L"X-GitHub-Api-Version: 2022-11-28\r\n";
+
+    if (!WinHttpSendRequest(request.Get(),
+                            headers,
+                            static_cast<DWORD>((sizeof(headers) / sizeof(headers[0])) - 1),
+                            WINHTTP_NO_REQUEST_DATA,
+                            0,
+                            0,
+                            0) ||
+        !WinHttpReceiveResponse(request.Get(), nullptr)) {
+        response.error = GetLastError();
+        return response;
+    }
+
+    DWORD statusSize = sizeof(response.status);
+    if (!WinHttpQueryHeaders(request.Get(),
+                             WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+                             WINHTTP_HEADER_NAME_BY_INDEX,
+                             &response.status,
+                             &statusSize,
+                             WINHTTP_NO_HEADER_INDEX)) {
+        response.error = GetLastError();
+        return response;
+    }
+
+    for (;;) {
+        DWORD available = 0;
+        if (!WinHttpQueryDataAvailable(request.Get(), &available)) {
+            response.error = GetLastError();
+            return response;
+        }
+        if (available == 0)
+            break;
+
+        std::string chunk(available, '\0');
+        DWORD read = 0;
+        if (!WinHttpReadData(request.Get(), chunk.data(), available, &read)) {
+            response.error = GetLastError();
+            return response;
+        }
+        response.body.append(chunk.data(), read);
+    }
+
+    return response;
+}
+
+struct UpdateCheckResult {
+    bool openLatestRelease = false;
+    std::wstring title;
+    std::wstring info;
+};
+
+static std::wstring CurrentReleaseTagApiPath() {
+    const int code = BuildDateCode();
+    std::wstring path = GITHUB_CURRENT_RELEASE_API_PATH_PREFIX;
+    AppendTwoDigits(path, code / 10000);
+    AppendTwoDigits(path, (code / 100) % 100);
+    AppendTwoDigits(path, code % 100);
+    return path;
+}
+
+static UpdateCheckResult CheckGitHubReleaseUpdate() {
+    const int currentBuild = BuildDateCode();
+    const std::wstring currentPath = CurrentReleaseTagApiPath();
+    const HttpResponse currentRelease = HttpGetGitHubApi(currentPath.c_str());
+
+    if (currentRelease.status == 404) {
+        return {false,
+                L"Up to date",
+                L"This build tag is not published yet, so it is treated as current."};
+    }
+    if (currentRelease.status != 200) {
+        return {false,
+                L"Update check failed",
+                L"Could not check the current build tag on GitHub."};
+    }
+
+    const HttpResponse latestRelease = HttpGetGitHubApi(GITHUB_LATEST_RELEASE_API_PATH);
+    if (latestRelease.status == 404) {
+        return {false, L"Up to date", L"No public GitHub release was found."};
+    }
+    if (latestRelease.status != 200) {
+        return {false,
+                L"Update check failed",
+                L"Could not check the latest GitHub release."};
+    }
+
+    std::string latestTag;
+    int latestBuild = 0;
+    if (!FindJsonStringValue(latestRelease.body, "tag_name", latestTag) ||
+        !ParseBuildTag(latestTag, latestBuild)) {
+        return {false,
+                L"Update check failed",
+                L"The latest release tag is not in the Build YYMMDD format."};
+    }
+
+    if (latestBuild > currentBuild) {
+        return {true,
+                L"Update available",
+                L"A newer release is available. Opening GitHub releases."};
+    }
+
+    return {false, L"Up to date", L"You are running the latest release."};
 }
 
 static bool IsBackButtonComboId(UINT id) {
@@ -247,13 +490,16 @@ LRESULT TrayApp::HandleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         AddTrayIcon();
         return 0;
     }
+    if (msg == WM_UPDATE_CHECK_RESULT) {
+        HandleUpdateCheckResult(lp);
+        return 0;
+    }
 
     switch (msg) {
     case WM_TRAY:
         if (LOWORD(lp) == NIN_BALLOONUSERCLICK &&
             m_lastVirtualControllerError != VirtualControllerError::None)
-            ShellExecuteW(nullptr, L"open", L"https://github.com/david419kr/steamless-controller-dualshock4-dualsense/releases/latest",
-                          nullptr, nullptr, SW_SHOWNORMAL);
+            ShellExecuteW(nullptr, L"open", GITHUB_LATEST_RELEASE_URL, nullptr, nullptr, SW_SHOWNORMAL);
         else if (LOWORD(lp) == WM_RBUTTONUP || LOWORD(lp) == WM_LBUTTONUP)
             ShowContextMenu();
         return 0;
@@ -369,6 +615,9 @@ LRESULT TrayApp::HandleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             break;
         case IDM_RESTART_STEAM:
             RestartSteam(/*launchIfNotRunning=*/true);
+            break;
+        case IDM_BUILD_INFO:
+            CheckForUpdates();
             break;
         case IDC_DS_RUMBLE_THRESHOLD_RESET:
             ResetDualSenseRumbleThreshold();
@@ -546,6 +795,39 @@ void TrayApp::ShowTrayBalloon(const wchar_t* title, const wchar_t* info, DWORD i
     wcscpy_s(nid.szInfoTitle, title);
     wcscpy_s(nid.szInfo,      info);
     Shell_NotifyIconW(NIM_MODIFY, &nid);
+}
+
+void TrayApp::CheckForUpdates() {
+    if (m_updateCheckInProgress) {
+        ShowTrayBalloon(L"Update check",
+                        L"An update check is already running.",
+                        NIIF_INFO);
+        return;
+    }
+
+    m_updateCheckInProgress = true;
+    ShowTrayBalloon(L"Checking for updates",
+                    L"Checking GitHub releases...",
+                    NIIF_INFO);
+
+    HWND hwnd = m_hwnd;
+    const UINT resultMessage = WM_UPDATE_CHECK_RESULT;
+    std::thread([hwnd, resultMessage]() {
+        auto* result = new UpdateCheckResult(CheckGitHubReleaseUpdate());
+        if (!PostMessageW(hwnd, resultMessage, 0, reinterpret_cast<LPARAM>(result)))
+            delete result;
+    }).detach();
+}
+
+void TrayApp::HandleUpdateCheckResult(LPARAM lp) {
+    std::unique_ptr<UpdateCheckResult> result(reinterpret_cast<UpdateCheckResult*>(lp));
+    m_updateCheckInProgress = false;
+    if (!result)
+        return;
+
+    ShowTrayBalloon(result->title.c_str(), result->info.c_str(), NIIF_INFO);
+    if (result->openLatestRelease)
+        ShellExecuteW(nullptr, L"open", GITHUB_LATEST_RELEASE_URL, nullptr, nullptr, SW_SHOWNORMAL);
 }
 
 static constexpr wchar_t REG_KEY[]     = L"Software\\SteamlessController";
@@ -1485,8 +1767,8 @@ void TrayApp::ShowContextMenu() {
     AppendMenuW(menu, startupFlags, IDM_STARTUP, L"Start with Windows");
 
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-    const std::wstring buildLabel = BuildLabel();
-    AppendMenuW(menu, MF_STRING | MF_GRAYED, IDM_BUILD_INFO, buildLabel.c_str());
+    const std::wstring buildLabel = BuildMenuLabel();
+    AppendMenuW(menu, MF_STRING, IDM_BUILD_INFO, buildLabel.c_str());
     AppendMenuW(menu, MF_STRING, IDM_EXIT, L"Exit");
 
     // SetForegroundWindow is required for the menu to dismiss on click-away.

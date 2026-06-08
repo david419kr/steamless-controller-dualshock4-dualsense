@@ -51,7 +51,7 @@ add_executable(SteamlessController WIN32
     resources/app.rc
 )
 target_include_directories(SteamlessController PRIVATE resources)
-target_link_libraries(SteamlessController PRIVATE SteamController ws2_32 comctl32)
+target_link_libraries(SteamlessController PRIVATE SteamController ws2_32 comctl32 winhttp)
 if (MSVC)
     target_compile_options(SteamlessController PRIVATE /W4 /WX)
 endif()
