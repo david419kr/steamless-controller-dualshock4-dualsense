@@ -10,8 +10,9 @@ This fork turns a Steam Controller into a virtual Xbox 360, DualShock 4, experim
 2. Reboot Windows once after installation.
 3. Connect the Steam Controller 2026 by USB or through the wireless Puck.
 4. From the tray menu, choose `Output Mode -> DualShock 4`, `Output Mode -> DualSense`, or `Output Mode -> Switch Pro Controller`, then enable `Steamless Mode`.
-5. For native PlayStation/Nintendo-controller input in Steam, enable Steamless Mode first, then use `Restart Steam` from the tray menu.
-6. If needed per game, right-click the game in Steam, open Properties, and disable Steam Input.
+5. Optional: use `Auto Enable Mode -> Auto Enable` to enable Steamless Mode automatically when a Steam Controller is detected. `Auto Restart Steam` can restart Steam at the same time when Steam is already running.
+6. For native PlayStation/Nintendo-controller input in Steam, enable Steamless Mode first, then use `Restart Steam` from the tray menu.
+7. If needed per game, right-click the game in Steam, open Properties, and disable Steam Input.
 
 ## Supported Features
 
@@ -19,6 +20,7 @@ This fork turns a Steam Controller into a virtual Xbox 360, DualShock 4, experim
 - HidHide + DualShock 4 mode has been tested in Steam with native gyro controls working in **Pragmata**.
 - DualSense mode has been tested with best-effort Haptic Feedback in **Ratchet & Clank: Rift Apart** and **Marvel's Spider-Man Remastered**.
 - Switch Pro Controller mode supports buttons, sticks, ZL/ZR, native gyro/accelerometer output, and Capture. It also includes an HD Rumble translation layer that emulates a feel closer to real HD Rumble.
+- Auto Enable Mode can enable Steamless Mode automatically when a Steam Controller is detected, with an optional Steam restart for already-running Steam sessions.
 - Native gyro input has also been tested outside Steam in **Cemu**.
 
 ## DualSense Support
@@ -38,6 +40,7 @@ The Steam Controller 2026 can be used wired or wirelessly through the Puck, and 
 - HidHide is optional but checked by default. It is recommended for Steam usage so the physical Steam Controller/Puck can be hidden while the virtual controller remains visible.
 - Virtual controller creation is handled internally by a patched [VIIPER](https://github.com/Alia5/VIIPER) sidecar. Users do not need to run `viiper.exe` manually.
 - When using HidHide with Steam, enable Steamless Mode first, then restart Steam. If Steam is already running, Steam may see both the physical controller and the virtual PlayStation controller at the same time.
+- `Auto Enable Mode -> Auto Restart Steam` only restarts Steam when Steam is already running. The manual `Restart Steam` tray action still launches Steam even when it is not running.
 
 <img width="685" height="583" alt="image" src="https://github.com/user-attachments/assets/de920d6d-5e2c-4b37-b3ae-8029708d64e0" />
 <img width="512" height="239" alt="image" src="https://github.com/user-attachments/assets/a7ffceb8-4ac2-4f34-88f3-1833251141af" />
@@ -65,6 +68,7 @@ When **Steamless Mode** is active, the app disables the controller's built-in ke
 - **Back Button Mappings** maps L4/L5/R4/R5 to gamepad buttons
 - **Use Left Trackpad Instead** mirrors trackpad/back-button mouse functionality to the left side
 - **Hide Original Controller** integrates with HidHide when installed
+- **Auto Enable Mode** can enable Steamless Mode when a Steam Controller is detected and optionally restart an already-running Steam session
 - **Restart Steam** tray action restarts Steam after hide/show changes
 - **Start with Windows** launches automatically at login
 - Settings persist across restarts

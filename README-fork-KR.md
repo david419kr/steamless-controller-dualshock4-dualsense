@@ -8,8 +8,9 @@
 2. 설치가 끝나면 Windows를 한 번 재부팅합니다.
 3. Steam Controller 2026을 유선 또는 무선 Puck으로 연결합니다.
 4. 트레이 메뉴에서 `Output Mode -> DualShock 4`, `Output Mode -> DualSense`, 또는 `Output Mode -> Switch Pro Controller`를 선택하고 `Enable Steamless Mode`를 켭니다.
-5. Steam에서 네이티브 PlayStation/Nintendo 컨트롤러 입력으로 쓰려면 Steamless Mode를 켠 뒤 트레이 메뉴의 `Restart Steam`을 실행하세요.
-6. 게임별로 필요하면 Steam 라이브러리의 해당 게임 속성에서 Steam Input을 비활성화합니다.
+5. 필요하면 `Auto Enable Mode -> Auto Enable`을 켜서 Steam Controller가 감지될 때 Steamless Mode가 자동으로 켜지게 할 수 있습니다. `Auto Restart Steam`은 Steam이 이미 실행 중일 때만 함께 재시작합니다.
+6. Steam에서 네이티브 PlayStation/Nintendo 컨트롤러 입력으로 쓰려면 Steamless Mode를 켠 뒤 트레이 메뉴의 `Restart Steam`을 실행하세요.
+7. 게임별로 필요하면 Steam 라이브러리의 해당 게임 속성에서 Steam Input을 비활성화합니다.
 
 ## 지원 기능
 
@@ -17,6 +18,7 @@
 - HidHide와 DualShock 4 모드를 함께 사용하여 Steam에서 **Pragmata**의 네이티브 자이로 조작이 동작하는 것을 확인했습니다.
 - DualSense 모드를 사용하여 **Ratchet & Clank: Rift Apart**와 **Marvel's Spider-Man Remastered**에서 향상된 진동을 best-effort로 테스트했습니다.
 - Switch Pro Controller 모드는 버튼, 스틱, ZL/ZR, 네이티브 자이로/가속도, Capture를 지원합니다. 또한 HD Rumble translation layer가 존재하여 실제 HD Rumble에 가까운 느낌을 emulation합니다.
+- Auto Enable Mode는 Steam Controller가 감지되면 Steamless Mode를 자동으로 켤 수 있으며, Steam이 이미 실행 중인 경우에만 Steam 자동 재시작도 함께 적용할 수 있습니다.
 - Steam 외 사용처로 **Cemu**에서도 네이티브 자이로 입력이 동작하는 것을 확인했습니다.
 
 ## DualSense 지원
@@ -36,6 +38,7 @@ Steam Controller 2026은 유선 연결과 무선 Puck 연결 모두에서 사용
 - HidHide는 선택 항목이지만 기본 체크 상태입니다. Steam에서 실제 Steam Controller/Puck을 숨기고 가상 컨트롤러만 보이게 하려면 설치하는 것을 권장합니다.
 - 가상 컨트롤러 생성은 내부적으로 패치된 [VIIPER](https://github.com/Alia5/VIIPER) sidecar를 사용합니다. 일반 사용자는 `viiper.exe`를 직접 실행할 필요가 없습니다.
 - HidHide를 사용하는 경우 Steamless Mode를 먼저 켠 다음 Steam을 재시작하세요. Steam이 이미 켜져 있는 상태에서는 실제 컨트롤러와 가상 PlayStation 컨트롤러가 동시에 인식되어 중복 입력이 발생할 수 있습니다.
+- `Auto Enable Mode -> Auto Restart Steam`은 Steam이 이미 실행 중일 때만 Steam을 재시작합니다. 트레이 메뉴의 수동 `Restart Steam`은 기존처럼 Steam이 꺼져 있어도 Steam을 실행합니다.
 
 ## 빌드 방법
 
