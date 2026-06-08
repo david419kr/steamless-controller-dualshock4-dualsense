@@ -118,3 +118,75 @@ func TestRumbleAndSubcommandOutput(t *testing.T) {
 		t.Fatalf("unexpected subcommand reply: % x", reply[:16])
 	}
 }
+
+func TestStickCalibrationWindows(t *testing.T) {
+	dev, err := New(nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	block := dev.spiBlock(0x603D, 18)
+	if len(block) != 18 {
+		t.Fatalf("calibration length = %d", len(block))
+	}
+
+	leftMaxX, leftMaxY := unpackStick12(block[0:3])
+	leftCenterX, leftCenterY := unpackStick12(block[3:6])
+	leftMinX, leftMinY := unpackStick12(block[6:9])
+	if leftMaxX != 2047 || leftMaxY != 2047 ||
+		leftCenterX != StickCenter || leftCenterY != StickCenter ||
+		leftMinX != 2048 || leftMinY != 2048 {
+		t.Fatalf("left calibration max=%04x,%04x center=%04x,%04x min=%04x,%04x",
+			leftMaxX, leftMaxY, leftCenterX, leftCenterY, leftMinX, leftMinY)
+	}
+
+	rightCenterX, rightCenterY := unpackStick12(block[9:12])
+	rightMinX, rightMinY := unpackStick12(block[12:15])
+	rightMaxX, rightMaxY := unpackStick12(block[15:18])
+	if rightCenterX != StickCenter || rightCenterY != StickCenter ||
+		rightMinX != 2048 || rightMinY != 2048 ||
+		rightMaxX != 2047 || rightMaxY != 2047 {
+		t.Fatalf("right calibration center=%04x,%04x min=%04x,%04x max=%04x,%04x",
+			rightCenterX, rightCenterY, rightMinX, rightMinY, rightMaxX, rightMaxY)
+	}
+}
+
+func TestIMUCalibrationWindow(t *testing.T) {
+	dev, err := New(nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	block := dev.spiBlock(0x6020, 24)
+	if len(block) != 24 {
+		t.Fatalf("IMU calibration length = %d", len(block))
+	}
+	if unpackS16(block[0:2]) != 0 || unpackS16(block[2:4]) != 0 || unpackS16(block[4:6]) != 0 {
+		t.Fatalf("unexpected accel origin: % x", block[0:6])
+	}
+	if unpackS16(block[6:8]) != 0x4000 ||
+		unpackS16(block[8:10]) != 0x4000 ||
+		unpackS16(block[10:12]) != 0x4000 {
+		t.Fatalf("unexpected accel coeff: % x", block[6:12])
+	}
+	if unpackS16(block[12:14]) != 0 ||
+		unpackS16(block[14:16]) != 0 ||
+		unpackS16(block[16:18]) != 0 {
+		t.Fatalf("unexpected gyro origin: % x", block[12:18])
+	}
+	if unpackS16(block[18:20]) != 0x343B ||
+		unpackS16(block[20:22]) != 0x343B ||
+		unpackS16(block[22:24]) != 0x343B {
+		t.Fatalf("unexpected gyro coeff: % x", block[18:24])
+	}
+}
+
+func unpackStick12(in []byte) (uint16, uint16) {
+	x := uint16(in[0]) | ((uint16(in[1]) & 0x0F) << 8)
+	y := (uint16(in[1]) >> 4) | (uint16(in[2]) << 4)
+	return x, y
+}
+
+func unpackS16(in []byte) int16 {
+	return int16(uint16(in[0]) | (uint16(in[1]) << 8))
+}

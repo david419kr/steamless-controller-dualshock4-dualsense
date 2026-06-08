@@ -345,7 +345,7 @@ void TestSwitch2ProMapping() {
     SetButtons(state,
                SteamController::BTN_A | SteamController::BTN_B |
                    SteamController::BTN_X | SteamController::BTN_Y |
-                   SteamController::BTN_MENU,
+                   SteamController::BTN_STEAM_MENU | SteamController::BTN_MENU,
                SteamController::BTN_VIEW | SteamController::BTN_LS |
                    SteamController::BTN_RB,
                SteamController::BTN_LB | SteamController::BTN_STEAM |
@@ -372,7 +372,7 @@ void TestSwitch2ProMapping() {
     ViiperSwitch2ProInputState input = BuildViiperSwitch2ProInput(state, settings);
     ExpectEq(input.buttons,
              (1u << 0) | (1u << 1) | (1u << 2) | (1u << 3) |
-                 (1u << 4) | (1u << 5) |
+                 (1u << 4) | (1u << 5) | (1u << 6) |
                  (1u << 12) | (1u << 13) | (1u << 14) |
                  (1u << 15) | (1u << 16) | (1u << 17) |
                  (1u << 20),
@@ -380,10 +380,10 @@ void TestSwitch2ProMapping() {
     ExpectEq(input.leftStickX, 2048, "Switch 2 Pro neutral LX");
     ExpectEq(input.leftStickY, 2048, "Switch 2 Pro neutral LY");
     ExpectEq(input.rightStickX, 4095, "Switch 2 Pro max RX");
-    ExpectEq(input.rightStickY, 4095, "Switch 2 Pro inverted min RY");
-    Expect(input.gyroX == 11 && input.gyroY == 33 && input.gyroZ == -22,
+    ExpectEq(input.rightStickY, 0, "Switch 2 Pro min RY");
+    Expect(input.gyroX == 11 && input.gyroY == -22 && input.gyroZ == 33,
            "Switch 2 Pro gyro axis mapping");
-    Expect(input.accelX == 44 && input.accelY == 66 && input.accelZ == -55,
+    Expect(input.accelX == 44 && input.accelY == -55 && input.accelZ == 66,
            "Switch 2 Pro accel axis mapping");
 
     const auto serialized = input.Serialize();
@@ -430,7 +430,7 @@ void TestSwitchProMapping() {
     SetButtons(state,
                SteamController::BTN_A | SteamController::BTN_B |
                    SteamController::BTN_X | SteamController::BTN_Y |
-                   SteamController::BTN_MENU,
+                   SteamController::BTN_STEAM_MENU | SteamController::BTN_MENU,
                SteamController::BTN_VIEW | SteamController::BTN_LS |
                    SteamController::BTN_RB,
                SteamController::BTN_LB | SteamController::BTN_STEAM |
@@ -457,23 +457,27 @@ void TestSwitchProMapping() {
     const ViiperSwitchProInputState input = BuildViiperSwitchProInput(state, settings);
     ExpectEq(input.buttons,
              (1u << 0) | (1u << 1) | (1u << 2) | (1u << 3) |
-                 (1u << 4) | (1u << 5) |
+                 (1u << 4) | (1u << 5) | (1u << 6) |
                  (1u << 12) | (1u << 13) | (1u << 14) |
                  (1u << 15) | (1u << 16) | (1u << 17),
              "Switch Pro base button mapping has no C/GL/GR");
     ExpectEq(input.leftStickX, 2048, "Switch Pro neutral LX");
     ExpectEq(input.leftStickY, 2048, "Switch Pro neutral LY");
     ExpectEq(input.rightStickX, 4095, "Switch Pro max RX");
-    ExpectEq(input.rightStickY, 4095, "Switch Pro inverted min RY");
-    Expect(input.gyroX == 11 && input.gyroY == 33 && input.gyroZ == -22,
-           "Switch Pro gyro axis mapping");
-    Expect(input.accelX == 44 && input.accelY == 66 && input.accelZ == -55,
-           "Switch Pro accel axis mapping");
+    ExpectEq(input.rightStickY, 0, "Switch Pro min RY");
+    Expect(input.gyroX == 22 && input.gyroY == -11 && input.gyroZ == 33,
+           "Switch Pro raw gyro inverse SDL axis mapping");
+    Expect(-input.gyroY == 11 && input.gyroZ == 33 && -input.gyroX == -22,
+           "Switch Pro SDL-exposed gyro axes match DS/Switch2 mapping");
+    Expect(input.accelX == 55 && input.accelY == -44 && input.accelZ == 66,
+           "Switch Pro raw accel inverse SDL axis mapping");
+    Expect(-input.accelY == 44 && input.accelZ == 66 && -input.accelX == -55,
+           "Switch Pro SDL-exposed accel axes match DS/Switch2 mapping");
 
     const auto serialized = input.Serialize();
     ExpectEq(serialized[0], input.buttons & 0xFF, "Switch Pro serialize buttons low");
     ExpectEq(serialized[4], input.leftStickX & 0xFF, "Switch Pro serialize LX");
-    ExpectEq(serialized[18], 11, "Switch Pro serialize gyro X");
+    ExpectEq(serialized[18], 22, "Switch Pro serialize raw gyro X");
 }
 
 void TestSwitchProTrackpadDpadAndBackButtons() {

@@ -127,29 +127,23 @@ func (d *NSPro) spiReadPayload(args []byte) []byte {
 
 func (d *NSPro) spiBlock(address uint32, length int) []byte {
 	block := make([]byte, length)
-	switch {
-	case address >= 0x603D && address < 0x6046:
-		fillCalibrationWindow(block, address, 0x603D, true)
-	case address >= 0x6046 && address < 0x604F:
-		fillCalibrationWindow(block, address, 0x6046, false)
-	case address >= 0x6020 && address < 0x6038:
-		fillIMUCalibrationWindow(block, address, 0x6020)
-	case address >= 0x6050 && address < 0x6060:
-		serial := []byte(d.metaSerialNumber())
-		copyWindow(block, address, 0x6050, serial)
-	case address >= 0x8000 && address < 0x8050:
-		// User calibration is intentionally left empty so hosts use factory data.
-	default:
-	}
+	fillIMUCalibrationWindow(block, address, 0x6020)
+	fillStickCalibrationWindow(block, address, 0x603D, true)
+	fillStickCalibrationWindow(block, address, 0x6046, false)
+
+	serial := []byte(d.metaSerialNumber())
+	copyWindow(block, address, 0x6050, serial)
 	return block
 }
 
-func fillCalibrationWindow(out []byte, address uint32, base uint32, left bool) {
+func fillStickCalibrationWindow(out []byte, address uint32, base uint32, left bool) {
 	cal := make([]byte, 9)
 	if left {
-		encodeStickCalibration(cal, StickCenter, StickCenter, 0x0700, 0x0700, 0x0700, 0x0700)
+		// Left stick order: X/Y max above center, X/Y center, X/Y min below center.
+		encodeStickCalibration(cal, 2047, 2047, StickCenter, StickCenter, 2048, 2048)
 	} else {
-		encodeStickCalibration(cal, StickCenter, StickCenter, 0x0700, 0x0700, 0x0700, 0x0700)
+		// Right stick order: X/Y center, X/Y min below center, X/Y max above center.
+		encodeStickCalibration(cal, StickCenter, StickCenter, 2048, 2048, 2047, 2047)
 	}
 	copyWindow(out, address, base, cal)
 }
@@ -159,15 +153,15 @@ func fillIMUCalibrationWindow(out []byte, address uint32, base uint32) {
 	putS16(cal[0:2], 0)
 	putS16(cal[2:4], 0)
 	putS16(cal[4:6], 0)
-	putS16(cal[6:8], 4096)
-	putS16(cal[8:10], 4096)
-	putS16(cal[10:12], 4096)
+	putS16(cal[6:8], 0x4000)
+	putS16(cal[8:10], 0x4000)
+	putS16(cal[10:12], 0x4000)
 	putS16(cal[12:14], 0)
 	putS16(cal[14:16], 0)
 	putS16(cal[16:18], 0)
-	putS16(cal[18:20], 14)
-	putS16(cal[20:22], 14)
-	putS16(cal[22:24], 14)
+	putS16(cal[18:20], 0x343B)
+	putS16(cal[20:22], 0x343B)
+	putS16(cal[22:24], 0x343B)
 	copyWindow(out, address, base, cal)
 }
 
@@ -181,14 +175,32 @@ func encodeStickCalibration(out []byte, neutralX, neutralY, maxX, maxY, minX, mi
 }
 
 func copyWindow(out []byte, address uint32, base uint32, src []byte) {
-	if address < base {
+	if len(out) == 0 || len(src) == 0 {
 		return
 	}
-	offset := int(address - base)
-	if offset >= len(src) {
+
+	reqStart := uint64(address)
+	reqEnd := reqStart + uint64(len(out))
+	srcStart := uint64(base)
+	srcEnd := srcStart + uint64(len(src))
+
+	if reqEnd <= srcStart || srcEnd <= reqStart {
 		return
 	}
-	copy(out, src[offset:])
+
+	overlapStart := reqStart
+	if srcStart > overlapStart {
+		overlapStart = srcStart
+	}
+	overlapEnd := reqEnd
+	if srcEnd < overlapEnd {
+		overlapEnd = srcEnd
+	}
+
+	dstOffset := int(overlapStart - reqStart)
+	srcOffset := int(overlapStart - srcStart)
+	copy(out[dstOffset:dstOffset+int(overlapEnd-overlapStart)],
+		src[srcOffset:srcOffset+int(overlapEnd-overlapStart)])
 }
 
 func putS16(out []byte, value int16) {

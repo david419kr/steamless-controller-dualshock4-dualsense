@@ -994,9 +994,9 @@ ViiperSwitch2ProInputState BuildViiperSwitch2ProInput(
     const VirtualControllerRuntimeSettings& settings) {
     ViiperSwitch2ProInputState out{};
     out.leftStickX = AxisToSwitchStick(state.leftStickX, false);
-    out.leftStickY = AxisToSwitchStick(state.leftStickY, true);
+    out.leftStickY = AxisToSwitchStick(state.leftStickY, false);
     out.rightStickX = AxisToSwitchStick(state.rightStickX, false);
-    out.rightStickY = AxisToSwitchStick(state.rightStickY, true);
+    out.rightStickY = AxisToSwitchStick(state.rightStickY, false);
 
     const uint8_t b0 = ButtonByte(state, 0);
     const uint8_t b1 = ButtonByte(state, 1);
@@ -1017,7 +1017,8 @@ ViiperSwitch2ProInputState BuildViiperSwitch2ProInput(
     if (b2 & SteamController::BTN_LB) out.buttons |= NS2_BUTTON_L;
     if (b1 & SteamController::BTN_RB) out.buttons |= NS2_BUTTON_R;
     if (b1 & SteamController::BTN_VIEW) out.buttons |= NS2_BUTTON_MINUS;
-    if (b0 & SteamController::BTN_MENU) out.buttons |= NS2_BUTTON_CAPTURE;
+    if (b0 & SteamController::BTN_MENU) out.buttons |= NS2_BUTTON_PLUS;
+    if (b0 & SteamController::BTN_STEAM_MENU) out.buttons |= NS2_BUTTON_CAPTURE;
     if (b1 & SteamController::BTN_LS) out.buttons |= NS2_BUTTON_LEFT_STICK;
     if (b0 & SteamController::BTN_RS) out.buttons |= NS2_BUTTON_RIGHT_STICK;
     if (b2 & SteamController::BTN_STEAM) out.buttons |= NS2_BUTTON_HOME;
@@ -1039,11 +1040,11 @@ ViiperSwitch2ProInputState BuildViiperSwitch2ProInput(
 
     if (state.hasImu) {
         out.gyroX = state.gyroX;
-        out.gyroY = state.gyroZ;
-        out.gyroZ = NegI16(state.gyroY);
+        out.gyroY = NegI16(state.gyroY);
+        out.gyroZ = state.gyroZ;
         out.accelX = state.accelX;
-        out.accelY = state.accelZ;
-        out.accelZ = NegI16(state.accelY);
+        out.accelY = NegI16(state.accelY);
+        out.accelZ = state.accelZ;
     }
 
     ApplyBackButtonMappingsSwitch2Pro(state, settings.backButtonMappings, out);
@@ -1055,9 +1056,9 @@ ViiperSwitchProInputState BuildViiperSwitchProInput(
     const VirtualControllerRuntimeSettings& settings) {
     ViiperSwitchProInputState out{};
     out.leftStickX = AxisToSwitchStick(state.leftStickX, false);
-    out.leftStickY = AxisToSwitchStick(state.leftStickY, true);
+    out.leftStickY = AxisToSwitchStick(state.leftStickY, false);
     out.rightStickX = AxisToSwitchStick(state.rightStickX, false);
-    out.rightStickY = AxisToSwitchStick(state.rightStickY, true);
+    out.rightStickY = AxisToSwitchStick(state.rightStickY, false);
 
     const uint8_t b0 = ButtonByte(state, 0);
     const uint8_t b1 = ButtonByte(state, 1);
@@ -1076,7 +1077,8 @@ ViiperSwitchProInputState BuildViiperSwitchProInput(
     if (b2 & SteamController::BTN_LB) out.buttons |= NS2_BUTTON_L;
     if (b1 & SteamController::BTN_RB) out.buttons |= NS2_BUTTON_R;
     if (b1 & SteamController::BTN_VIEW) out.buttons |= NS2_BUTTON_MINUS;
-    if (b0 & SteamController::BTN_MENU) out.buttons |= NS2_BUTTON_CAPTURE;
+    if (b0 & SteamController::BTN_MENU) out.buttons |= NS2_BUTTON_PLUS;
+    if (b0 & SteamController::BTN_STEAM_MENU) out.buttons |= NS2_BUTTON_CAPTURE;
     if (b1 & SteamController::BTN_LS) out.buttons |= NS2_BUTTON_LEFT_STICK;
     if (b0 & SteamController::BTN_RS) out.buttons |= NS2_BUTTON_RIGHT_STICK;
     if (b2 & SteamController::BTN_STEAM) out.buttons |= NS2_BUTTON_HOME;
@@ -1096,12 +1098,14 @@ ViiperSwitchProInputState BuildViiperSwitchProInput(
     out.buttons |= SwitchDpadButtons(dpad);
 
     if (state.hasImu) {
-        out.gyroX = state.gyroX;
-        out.gyroY = state.gyroZ;
-        out.gyroZ = NegI16(state.gyroY);
-        out.accelX = state.accelX;
-        out.accelY = state.accelZ;
-        out.accelZ = NegI16(state.accelY);
+        // SDL/Steam maps Switch Pro raw IMU as standard = (-rawY, rawZ, -rawX).
+        // Feed the inverse so the exposed sensor axes match DS4/DS5/Switch2 modes.
+        out.gyroX = state.gyroY;
+        out.gyroY = NegI16(state.gyroX);
+        out.gyroZ = state.gyroZ;
+        out.accelX = state.accelY;
+        out.accelY = NegI16(state.accelX);
+        out.accelZ = state.accelZ;
     }
 
     ApplyBackButtonMappingsSwitchPro(state, settings.backButtonMappings, out);
