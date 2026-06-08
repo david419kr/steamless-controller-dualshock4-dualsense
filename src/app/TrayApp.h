@@ -46,6 +46,11 @@ private:
     void RefreshDualSenseSettingsWindow();
     void OnDualSenseRumbleThresholdChanged();
     void ResetDualSenseRumbleThreshold();
+    void ShowProCon2SettingsWindow();
+    void CreateProCon2SettingsControls();
+    void RefreshProCon2SettingsWindow();
+    void OnProCon2RumbleThresholdChanged();
+    void ResetProCon2RumbleThreshold();
 
     HWND                               m_hwnd      = nullptr;
     HWND                               m_backButtonHwnd = nullptr;
@@ -54,6 +59,10 @@ private:
     HWND                               m_dualSenseThresholdSlider = nullptr;
     HWND                               m_dualSenseThresholdValue = nullptr;
     HWND                               m_dualSenseThresholdReset = nullptr;
+    HWND                               m_proCon2SettingsHwnd = nullptr;
+    HWND                               m_proCon2ThresholdSlider = nullptr;
+    HWND                               m_proCon2ThresholdValue = nullptr;
+    HWND                               m_proCon2ThresholdReset = nullptr;
     HDEVNOTIFY                         m_deviceNotify = nullptr;
     HINSTANCE                          m_hInstance = nullptr;
     UINT                               m_wmTaskbar = 0;
@@ -73,6 +82,7 @@ private:
     static constexpr UINT IDM_OUTPUT_DSENSE = 1015;
     static constexpr UINT IDM_OUTPUT_SWITCH2PRO = 1017;
     static constexpr UINT IDM_OUTPUT_SWITCHPRO = 1018;
+    static constexpr UINT IDM_PROCON2_SETTINGS = 1019;
     static constexpr UINT IDM_HIDE_ORIGINAL = 1009;
     static constexpr UINT IDM_REVEAL_ORIGINAL = 1010;
     static constexpr UINT IDM_TRACKPAD_DPAD = 1011;
@@ -87,6 +97,9 @@ private:
     static constexpr UINT IDC_DS_RUMBLE_THRESHOLD = 2101;
     static constexpr UINT IDC_DS_RUMBLE_THRESHOLD_VALUE = 2102;
     static constexpr UINT IDC_DS_RUMBLE_THRESHOLD_RESET = 2103;
+    static constexpr UINT IDC_PROCON2_RUMBLE_THRESHOLD = 2111;
+    static constexpr UINT IDC_PROCON2_RUMBLE_THRESHOLD_VALUE = 2112;
+    static constexpr UINT IDC_PROCON2_RUMBLE_THRESHOLD_RESET = 2113;
     static constexpr UINT WM_TRAY          = WM_APP + 1;
     static constexpr UINT TRAY_UID         = 1;
     static constexpr UINT_PTR DEVICE_POLL_TIMER_ID = 3001;

@@ -922,20 +922,30 @@ void SteamController::SetSwitch2ProHaptics(const SteamControllerSwitch2ProHaptic
         m_rumbleBaseLeft = 0;
         m_rumbleBaseRight = 0;
 
-        const double leftBodyTail = !leftSilent
-            ? ClampUnit(leftDelta * 1.15 + (std::max)(0.0, leftEnergy - 0.82) * 0.38)
+        const double leftSustainedBody = !leftSilent && leftEnergy > 0.88
+            ? std::pow((leftEnergy - 0.88) / 0.12, 1.45) * 0.22
             : 0.0;
-        const double rightBodyTail = !rightSilent
-            ? ClampUnit(rightDelta * 1.15 + (std::max)(0.0, rightEnergy - 0.82) * 0.38)
+        const double rightSustainedBody = !rightSilent && rightEnergy > 0.88
+            ? std::pow((rightEnergy - 0.88) / 0.12, 1.45) * 0.22
             : 0.0;
-        m_rumbleBoostLeft = leftBodyTail > 0.020 ? UnitToHapticSpeed(leftBodyTail * 0.36, 0x0C00) : 0;
-        m_rumbleBoostRight = rightBodyTail > 0.020 ? UnitToHapticSpeed(rightBodyTail * 0.36, 0x0C00) : 0;
+        const double impactThreshold = m_switch2ProRumbleImpactThreshold.load(std::memory_order_relaxed);
+        const double impactRange = (std::max)(0.01, 1.0 - impactThreshold);
+        const double leftImpactBody = !leftSilent && leftDelta > impactThreshold
+            ? std::pow((leftDelta - impactThreshold) / impactRange, 1.20) * 0.18
+            : 0.0;
+        const double rightImpactBody = !rightSilent && rightDelta > impactThreshold
+            ? std::pow((rightDelta - impactThreshold) / impactRange, 1.20) * 0.18
+            : 0.0;
+        const double leftBodyTail = ClampUnit(leftSustainedBody + leftImpactBody);
+        const double rightBodyTail = ClampUnit(rightSustainedBody + rightImpactBody);
+        m_rumbleBoostLeft = leftBodyTail > 0.015 ? UnitToHapticSpeed(leftBodyTail, 0x0A00) : 0;
+        m_rumbleBoostRight = rightBodyTail > 0.015 ? UnitToHapticSpeed(rightBodyTail, 0x0A00) : 0;
         m_rumbleBoostUntil = (m_rumbleBoostLeft != 0 || m_rumbleBoostRight != 0)
-            ? now + std::chrono::milliseconds(55)
+            ? now + std::chrono::milliseconds(42)
             : std::chrono::steady_clock::time_point{};
 
-        pulseLeftIntensity = ClampUnit(leftDelta * 1.55 + (std::max)(0.0, leftEnergy - 0.70) * 0.20);
-        pulseRightIntensity = ClampUnit(rightDelta * 1.55 + (std::max)(0.0, rightEnergy - 0.70) * 0.20);
+        pulseLeftIntensity = ClampUnit(leftDelta * 1.85 + (std::max)(0.0, leftEnergy - 0.66) * 0.32);
+        pulseRightIntensity = ClampUnit(rightDelta * 1.85 + (std::max)(0.0, rightEnergy - 0.66) * 0.32);
         if (!leftSilent && pulseLeftIntensity > 0.045 &&
             now - m_lastSwitch2ProLeftPulse >= std::chrono::milliseconds(20)) {
             pulseLeft = true;
@@ -966,6 +976,13 @@ void SteamController::SetSwitch2ProHaptics(const SteamControllerSwitch2ProHaptic
                                       static_cast<int>(std::lround(SwitchPulseGainDb(pulseLeftIntensity) / 4.0)),
                                       -24,
                                       6)));
+        if (pulseLeftIntensity > 0.58)
+            SendTrackpadCommandOutput(TRACKPAD_HAPTIC_OUTPUT_LEFT,
+                                      HAPTIC_COMMAND_CLICK,
+                                      static_cast<int8_t>(std::clamp<int>(
+                                          static_cast<int>(std::lround(SwitchPulseGainDb(pulseLeftIntensity) / 2.5)),
+                                          -18,
+                                          8)));
     }
     if (pulseRight) {
         SendTrackpadPulseOutput(TRACKPAD_HAPTIC_OUTPUT_RIGHT,
@@ -979,6 +996,13 @@ void SteamController::SetSwitch2ProHaptics(const SteamControllerSwitch2ProHaptic
                                       static_cast<int>(std::lround(SwitchPulseGainDb(pulseRightIntensity) / 4.0)),
                                       -24,
                                       6)));
+        if (pulseRightIntensity > 0.58)
+            SendTrackpadCommandOutput(TRACKPAD_HAPTIC_OUTPUT_RIGHT,
+                                      HAPTIC_COMMAND_CLICK,
+                                      static_cast<int8_t>(std::clamp<int>(
+                                          static_cast<int>(std::lround(SwitchPulseGainDb(pulseRightIntensity) / 2.5)),
+                                          -18,
+                                          8)));
     }
     if (sendRumble)
         SendRumbleOutput(frame.left, frame.right);
@@ -1084,6 +1108,18 @@ void SteamController::SetDualSenseAudioRumbleThreshold(double threshold) {
 
 double SteamController::GetDualSenseAudioRumbleThreshold() const {
     return m_dualSenseAudioRumbleThreshold.load(std::memory_order_relaxed);
+}
+
+void SteamController::SetSwitch2ProRumbleImpactThreshold(double threshold) {
+    m_switch2ProRumbleImpactThreshold.store(
+        std::clamp(threshold,
+                   SWITCH2PRO_RUMBLE_IMPACT_THRESHOLD_MIN,
+                   SWITCH2PRO_RUMBLE_IMPACT_THRESHOLD_MAX),
+        std::memory_order_relaxed);
+}
+
+double SteamController::GetSwitch2ProRumbleImpactThreshold() const {
+    return m_switch2ProRumbleImpactThreshold.load(std::memory_order_relaxed);
 }
 
 void SteamController::ClearDualSenseHaptics() {

@@ -18,6 +18,7 @@ static TrayApp* g_app = nullptr;
 static constexpr wchar_t WNDCLASS_NAME[] = L"SteamlessControllerTray";
 static constexpr wchar_t BACKBUTTON_WNDCLASS_NAME[] = L"SteamlessControllerBackButtonMappings";
 static constexpr wchar_t DUALSENSE_SETTINGS_WNDCLASS_NAME[] = L"SteamlessControllerDualSenseSettings";
+static constexpr wchar_t PROCON2_SETTINGS_WNDCLASS_NAME[] = L"SteamlessControllerProCon2Settings";
 static constexpr UINT BACKMAP_L4_ID = 2001;
 static constexpr UINT BACKMAP_L5_ID = 2002;
 static constexpr UINT BACKMAP_R4_ID = 2003;
@@ -25,6 +26,7 @@ static constexpr UINT BACKMAP_R5_ID = 2004;
 static constexpr int DUALSENSE_RUMBLE_THRESHOLD_MIN = 0;
 static constexpr int DUALSENSE_RUMBLE_THRESHOLD_MAX = 100;
 static constexpr int DUALSENSE_RUMBLE_THRESHOLD_DEFAULT = 45;
+static constexpr int PROCON2_RUMBLE_THRESHOLD_DEFAULT = 34;
 
 static bool IsBackButtonComboId(UINT id) {
     return id >= BACKMAP_L4_ID && id <= BACKMAP_R5_ID;
@@ -155,6 +157,15 @@ bool TrayApp::Init(HINSTANCE hInstance) {
     dualSenseWc.lpszClassName = DUALSENSE_SETTINGS_WNDCLASS_NAME;
     if (!RegisterClassExW(&dualSenseWc)) return false;
 
+    WNDCLASSEXW proCon2Wc{};
+    proCon2Wc.cbSize        = sizeof(proCon2Wc);
+    proCon2Wc.lpfnWndProc   = WndProc;
+    proCon2Wc.hInstance     = hInstance;
+    proCon2Wc.hCursor       = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512));
+    proCon2Wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
+    proCon2Wc.lpszClassName = PROCON2_SETTINGS_WNDCLASS_NAME;
+    if (!RegisterClassExW(&proCon2Wc)) return false;
+
     // Message-only window — invisible, never shown.
     m_hwnd = CreateWindowExW(0, WNDCLASS_NAME, L"SteamlessController",
                              0, 0, 0, 0, 0, HWND_MESSAGE, nullptr, hInstance, nullptr);
@@ -255,6 +266,7 @@ LRESULT TrayApp::HandleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             LoadBackButtonMappingsForCurrentMode();
             RefreshBackButtonMappingWindow();
             RefreshDualSenseSettingsWindow();
+            RefreshProCon2SettingsWindow();
             SaveSettings();
             break;
         case IDM_OUTPUT_DS4:
@@ -262,6 +274,7 @@ LRESULT TrayApp::HandleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             LoadBackButtonMappingsForCurrentMode();
             RefreshBackButtonMappingWindow();
             RefreshDualSenseSettingsWindow();
+            RefreshProCon2SettingsWindow();
             SaveSettings();
             break;
         case IDM_OUTPUT_DSENSE:
@@ -269,6 +282,7 @@ LRESULT TrayApp::HandleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             LoadBackButtonMappingsForCurrentMode();
             RefreshBackButtonMappingWindow();
             RefreshDualSenseSettingsWindow();
+            RefreshProCon2SettingsWindow();
             SaveSettings();
             break;
         case IDM_OUTPUT_SWITCH2PRO:
@@ -276,6 +290,7 @@ LRESULT TrayApp::HandleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             LoadBackButtonMappingsForCurrentMode();
             RefreshBackButtonMappingWindow();
             RefreshDualSenseSettingsWindow();
+            RefreshProCon2SettingsWindow();
             SaveSettings();
             break;
         case IDM_OUTPUT_SWITCHPRO:
@@ -283,11 +298,16 @@ LRESULT TrayApp::HandleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             LoadBackButtonMappingsForCurrentMode();
             RefreshBackButtonMappingWindow();
             RefreshDualSenseSettingsWindow();
+            RefreshProCon2SettingsWindow();
             SaveSettings();
             break;
         case IDM_DUALSENSE_SETTINGS:
             if (m_controller->GetOutputMode() == VirtualControllerMode::DualSense)
                 ShowDualSenseSettingsWindow();
+            break;
+        case IDM_PROCON2_SETTINGS:
+            if (m_controller->GetOutputMode() == VirtualControllerMode::Switch2Pro)
+                ShowProCon2SettingsWindow();
             break;
         case IDM_HIDE_ORIGINAL:
             m_controller->SetHideOriginalControllerEnabled(!m_controller->IsHideOriginalControllerEnabled());
@@ -301,6 +321,9 @@ LRESULT TrayApp::HandleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             break;
         case IDC_DS_RUMBLE_THRESHOLD_RESET:
             ResetDualSenseRumbleThreshold();
+            break;
+        case IDC_PROCON2_RUMBLE_THRESHOLD_RESET:
+            ResetProCon2RumbleThreshold();
             break;
         case IDM_STARTUP:
             SetStartupEnabled(!IsStartupEnabled());
@@ -329,6 +352,10 @@ LRESULT TrayApp::HandleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             OnDualSenseRumbleThresholdChanged();
             return 0;
         }
+        if (reinterpret_cast<HWND>(lp) == m_proCon2ThresholdSlider) {
+            OnProCon2RumbleThresholdChanged();
+            return 0;
+        }
         break;
 
     case WM_CLOSE:
@@ -337,6 +364,10 @@ LRESULT TrayApp::HandleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             return 0;
         }
         if (hwnd == m_dualSenseSettingsHwnd) {
+            DestroyWindow(hwnd);
+            return 0;
+        }
+        if (hwnd == m_proCon2SettingsHwnd) {
             DestroyWindow(hwnd);
             return 0;
         }
@@ -354,6 +385,13 @@ LRESULT TrayApp::HandleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             m_dualSenseThresholdSlider = nullptr;
             m_dualSenseThresholdValue = nullptr;
             m_dualSenseThresholdReset = nullptr;
+            return 0;
+        }
+        if (hwnd == m_proCon2SettingsHwnd) {
+            m_proCon2SettingsHwnd = nullptr;
+            m_proCon2ThresholdSlider = nullptr;
+            m_proCon2ThresholdValue = nullptr;
+            m_proCon2ThresholdReset = nullptr;
             return 0;
         }
         PostQuitMessage(0);
@@ -653,13 +691,13 @@ void TrayApp::LoadSettings() {
             return val != 0;
         return def;
     };
-    auto readThreshold = [&](const wchar_t* name) -> double {
-        DWORD val = DUALSENSE_RUMBLE_THRESHOLD_DEFAULT, size = sizeof(val);
+    auto readThreshold = [&](const wchar_t* name, int defaultValue) -> double {
+        DWORD val = static_cast<DWORD>(defaultValue), size = sizeof(val);
         if (RegQueryValueExW(key, name, nullptr, nullptr,
                              reinterpret_cast<LPBYTE>(&val), &size) == ERROR_SUCCESS) {
             return SliderPositionToThreshold(static_cast<int>(val));
         }
-        return SliderPositionToThreshold(DUALSENSE_RUMBLE_THRESHOLD_DEFAULT);
+        return SliderPositionToThreshold(defaultValue);
     };
 
     DWORD outputMode = 0, outputModeSize = sizeof(outputMode);
@@ -684,7 +722,10 @@ void TrayApp::LoadSettings() {
     m_controller->SetTrackpadDpadUseRight(readBool(L"TrackpadDpadRight", false));
     m_controller->SetHideOriginalControllerEnabled(readBool(L"HideOriginalController", true));
     LoadBackButtonMappingsForCurrentMode(key);
-    m_controller->SetDualSenseAudioRumbleThreshold(readThreshold(L"DualSenseRumbleThreshold"));
+    m_controller->SetDualSenseAudioRumbleThreshold(
+        readThreshold(L"DualSenseRumbleThreshold", DUALSENSE_RUMBLE_THRESHOLD_DEFAULT));
+    m_controller->SetSwitch2ProRumbleImpactThreshold(
+        readThreshold(L"Switch2ProRumbleThreshold", PROCON2_RUMBLE_THRESHOLD_DEFAULT));
 
     RegCloseKey(key);
 }
@@ -765,6 +806,7 @@ void TrayApp::SaveSettings() {
                    reinterpret_cast<const BYTE*>(&outputMode), sizeof(outputMode));
     SaveBackButtonMappingsForCurrentMode(key);
     writeThreshold(L"DualSenseRumbleThreshold", m_controller->GetDualSenseAudioRumbleThreshold());
+    writeThreshold(L"Switch2ProRumbleThreshold", m_controller->GetSwitch2ProRumbleImpactThreshold());
 
     RegCloseKey(key);
 }
@@ -1106,6 +1148,159 @@ void TrayApp::ResetDualSenseRumbleThreshold() {
     SaveSettings();
 }
 
+void TrayApp::ShowProCon2SettingsWindow() {
+    if (m_proCon2SettingsHwnd) {
+        RefreshProCon2SettingsWindow();
+        ShowWindow(m_proCon2SettingsHwnd, SW_SHOWNORMAL);
+        SetForegroundWindow(m_proCon2SettingsHwnd);
+        return;
+    }
+
+    constexpr DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU;
+    constexpr DWORD exStyle = WS_EX_TOOLWINDOW;
+    RECT rect{0, 0, 424, 214};
+    AdjustWindowRectEx(&rect, style, FALSE, exStyle);
+
+    HWND hwnd = CreateWindowExW(
+        exStyle,
+        PROCON2_SETTINGS_WNDCLASS_NAME,
+        L"Pro Con 2 Settings",
+        style,
+        CW_USEDEFAULT,
+        CW_USEDEFAULT,
+        rect.right - rect.left,
+        rect.bottom - rect.top,
+        nullptr,
+        nullptr,
+        m_hInstance,
+        nullptr);
+    if (!hwnd)
+        return;
+
+    m_proCon2SettingsHwnd = hwnd;
+    CreateProCon2SettingsControls();
+    RefreshProCon2SettingsWindow();
+    ShowWindow(m_proCon2SettingsHwnd, SW_SHOWNORMAL);
+    SetForegroundWindow(m_proCon2SettingsHwnd);
+}
+
+void TrayApp::CreateProCon2SettingsControls() {
+    if (!m_proCon2SettingsHwnd)
+        return;
+
+    HFONT font = reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+
+    HWND label = CreateWindowExW(
+        0, L"STATIC", L"Rumble Threshold",
+        WS_CHILD | WS_VISIBLE | SS_LEFT,
+        18, 20, 150, 20,
+        m_proCon2SettingsHwnd, nullptr, m_hInstance, nullptr);
+    SendMessageW(label, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+
+    m_proCon2ThresholdValue = CreateWindowExW(
+        0, L"STATIC", L"0.34",
+        WS_CHILD | WS_VISIBLE | SS_RIGHT,
+        350, 20, 54, 20,
+        m_proCon2SettingsHwnd,
+        reinterpret_cast<HMENU>(static_cast<UINT_PTR>(IDC_PROCON2_RUMBLE_THRESHOLD_VALUE)),
+        m_hInstance,
+        nullptr);
+    SendMessageW(m_proCon2ThresholdValue, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+
+    m_proCon2ThresholdSlider = CreateWindowExW(
+        0, TRACKBAR_CLASSW, nullptr,
+        WS_CHILD | WS_VISIBLE | TBS_AUTOTICKS,
+        18, 48, 386, 34,
+        m_proCon2SettingsHwnd,
+        reinterpret_cast<HMENU>(static_cast<UINT_PTR>(IDC_PROCON2_RUMBLE_THRESHOLD)),
+        m_hInstance,
+        nullptr);
+    SendMessageW(m_proCon2ThresholdSlider, TBM_SETRANGE, TRUE,
+                 MAKELPARAM(DUALSENSE_RUMBLE_THRESHOLD_MIN, DUALSENSE_RUMBLE_THRESHOLD_MAX));
+    SendMessageW(m_proCon2ThresholdSlider, TBM_SETTICFREQ, 10, 0);
+    SendMessageW(m_proCon2ThresholdSlider, TBM_SETPAGESIZE, 0, 5);
+    SendMessageW(m_proCon2ThresholdSlider, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+
+    HWND minLabel = CreateWindowExW(
+        0, L"STATIC", L"0.00",
+        WS_CHILD | WS_VISIBLE | SS_LEFT,
+        18, 78, 48, 18,
+        m_proCon2SettingsHwnd, nullptr, m_hInstance, nullptr);
+    SendMessageW(minLabel, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+
+    HWND maxLabel = CreateWindowExW(
+        0, L"STATIC", L"1.00",
+        WS_CHILD | WS_VISIBLE | SS_RIGHT,
+        356, 78, 48, 18,
+        m_proCon2SettingsHwnd, nullptr, m_hInstance, nullptr);
+    SendMessageW(maxLabel, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+
+    HWND description = CreateWindowExW(
+        0,
+        L"STATIC",
+        L"Lower values allow strong haptics to blend into more rumble.\r\n"
+        L"The best value can vary by game. Too high or too low can screw up the haptic experience.\r\n"
+        L"If unsure, use the default value.",
+        WS_CHILD | WS_VISIBLE | SS_LEFT,
+        18, 104, 386, 54,
+        m_proCon2SettingsHwnd,
+        nullptr,
+        m_hInstance,
+        nullptr);
+    SendMessageW(description, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+
+    m_proCon2ThresholdReset = CreateWindowExW(
+        0, L"BUTTON", L"Reset To Default",
+        WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+        268, 166, 136, 28,
+        m_proCon2SettingsHwnd,
+        reinterpret_cast<HMENU>(static_cast<UINT_PTR>(IDC_PROCON2_RUMBLE_THRESHOLD_RESET)),
+        m_hInstance,
+        nullptr);
+    SendMessageW(m_proCon2ThresholdReset, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+}
+
+void TrayApp::RefreshProCon2SettingsWindow() {
+    if (!m_proCon2SettingsHwnd)
+        return;
+
+    const bool enabled = m_controller->GetOutputMode() == VirtualControllerMode::Switch2Pro;
+    EnableWindow(m_proCon2ThresholdSlider, enabled);
+    EnableWindow(m_proCon2ThresholdReset, enabled);
+
+    const double threshold = m_controller->GetSwitch2ProRumbleImpactThreshold();
+    const int sliderPos = ThresholdToSliderPosition(threshold);
+    if (m_proCon2ThresholdSlider)
+        SendMessageW(m_proCon2ThresholdSlider, TBM_SETPOS, TRUE, sliderPos);
+
+    if (m_proCon2ThresholdValue) {
+        wchar_t text[32]{};
+        swprintf_s(text, L"%.2f", SliderPositionToThreshold(sliderPos));
+        SetWindowTextW(m_proCon2ThresholdValue, text);
+    }
+}
+
+void TrayApp::OnProCon2RumbleThresholdChanged() {
+    if (!m_proCon2ThresholdSlider ||
+        m_controller->GetOutputMode() != VirtualControllerMode::Switch2Pro)
+        return;
+
+    const int sliderPos = static_cast<int>(SendMessageW(m_proCon2ThresholdSlider, TBM_GETPOS, 0, 0));
+    m_controller->SetSwitch2ProRumbleImpactThreshold(SliderPositionToThreshold(sliderPos));
+    RefreshProCon2SettingsWindow();
+    SaveSettings();
+}
+
+void TrayApp::ResetProCon2RumbleThreshold() {
+    if (m_controller->GetOutputMode() != VirtualControllerMode::Switch2Pro)
+        return;
+
+    m_controller->SetSwitch2ProRumbleImpactThreshold(
+        SliderPositionToThreshold(PROCON2_RUMBLE_THRESHOLD_DEFAULT));
+    RefreshProCon2SettingsWindow();
+    SaveSettings();
+}
+
 void TrayApp::ShowContextMenu() {
     bool connected      = m_controller->IsConnected();
     bool gameModeOn     = m_controller->IsGameModeActive();
@@ -1173,9 +1368,6 @@ void TrayApp::ShowContextMenu() {
     AppendMenuW(outputMenu,
                 MF_STRING | (outputMode == VirtualControllerMode::DualSense ? MF_CHECKED : MF_UNCHECKED),
                 IDM_OUTPUT_DSENSE, L"DualSense");
-    AppendMenuW(outputMenu,
-                MF_STRING | (outputMode == VirtualControllerMode::Switch2Pro ? MF_CHECKED : MF_UNCHECKED),
-                IDM_OUTPUT_SWITCH2PRO, L"Switch 2 Pro Controller");
     AppendMenuW(outputMenu,
                 MF_STRING | (outputMode == VirtualControllerMode::SwitchPro ? MF_CHECKED : MF_UNCHECKED),
                 IDM_OUTPUT_SWITCHPRO, L"Switch Pro Controller");

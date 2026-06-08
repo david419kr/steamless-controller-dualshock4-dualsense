@@ -285,6 +285,15 @@ void ControllerManager::SetDualSenseAudioRumbleThreshold(double threshold) {
         g_ctrl->SetDualSenseAudioRumbleThreshold(m_dualSenseAudioRumbleThreshold);
 }
 
+void ControllerManager::SetSwitch2ProRumbleImpactThreshold(double threshold) {
+    m_switch2ProRumbleImpactThreshold = std::clamp(
+        threshold,
+        SteamController::SWITCH2PRO_RUMBLE_IMPACT_THRESHOLD_MIN,
+        SteamController::SWITCH2PRO_RUMBLE_IMPACT_THRESHOLD_MAX);
+    if (g_ctrl)
+        g_ctrl->SetSwitch2ProRumbleImpactThreshold(m_switch2ProRumbleImpactThreshold);
+}
+
 void ControllerManager::RevealOriginalControllerNow() {
     if (m_hidHide.RevealSteamControllerNow())
         m_originalHidden = false;
@@ -587,6 +596,7 @@ void ControllerManager::TryOpen(uint32_t activeReportTimeoutMs) {
     if (!g_ctrl) g_ctrl = std::make_unique<SteamController>();
     if (g_ctrl->Open(activeReportTimeoutMs)) {
         g_ctrl->SetDualSenseAudioRumbleThreshold(m_dualSenseAudioRumbleThreshold);
+        g_ctrl->SetSwitch2ProRumbleImpactThreshold(m_switch2ProRumbleImpactThreshold);
         m_connected = true;
         m_onStateChanged(m_connected, m_gameModeActive, VirtualControllerError::None);
     }

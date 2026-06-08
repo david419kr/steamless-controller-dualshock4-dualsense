@@ -81,6 +81,9 @@ public:
     static constexpr double DUALSENSE_AUDIO_RUMBLE_THRESHOLD_DEFAULT = 0.45;
     static constexpr double DUALSENSE_AUDIO_RUMBLE_THRESHOLD_MIN = 0.0;
     static constexpr double DUALSENSE_AUDIO_RUMBLE_THRESHOLD_MAX = 1.0;
+    static constexpr double SWITCH2PRO_RUMBLE_IMPACT_THRESHOLD_DEFAULT = 0.34;
+    static constexpr double SWITCH2PRO_RUMBLE_IMPACT_THRESHOLD_MIN = 0.0;
+    static constexpr double SWITCH2PRO_RUMBLE_IMPACT_THRESHOLD_MAX = 1.0;
 
     static constexpr uint16_t VALVE_VID        = 0x28DE;
     static constexpr uint16_t SC2026_PID       = 0x1302;  // wired USB
@@ -235,6 +238,8 @@ public:
     void SetSwitchProHaptics(const SteamControllerSwitchProHaptics& haptics);
     void SetDualSenseAudioRumbleThreshold(double threshold);
     double GetDualSenseAudioRumbleThreshold() const;
+    void SetSwitch2ProRumbleImpactThreshold(double threshold);
+    double GetSwitch2ProRumbleImpactThreshold() const;
     void ClearDualSenseHaptics();
     void PulseTrackpadHaptic(bool left, bool strongClick);
     void ClearTrackpadHaptics();
@@ -299,6 +304,7 @@ private:
     std::array<uint8_t, 11> m_dualSenseLeftTriggerEffect{};
     std::array<uint8_t, 11> m_dualSenseRightTriggerEffect{};
     std::atomic<double> m_dualSenseAudioRumbleThreshold{DUALSENSE_AUDIO_RUMBLE_THRESHOLD_DEFAULT};
+    std::atomic<double> m_switch2ProRumbleImpactThreshold{SWITCH2PRO_RUMBLE_IMPACT_THRESHOLD_DEFAULT};
     uint16_t        m_dualSenseAudioLeft = 0;
     uint16_t        m_dualSenseAudioRight = 0;
     std::chrono::steady_clock::time_point m_lastDualSenseAudioAt{};
