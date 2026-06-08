@@ -122,7 +122,18 @@ static double AudioBodyRumbleUnit(double energy, double peak, double transient, 
 }
 
 static bool SwitchRumbleBlobSilent(const std::array<uint8_t, 16>& blob) {
-    return std::all_of(blob.begin(), blob.end(), [](uint8_t v) { return v == 0; });
+    if (std::all_of(blob.begin(), blob.end(), [](uint8_t v) { return v == 0; }))
+        return true;
+
+    // Switch 2 HD Rumble 2 is still treated as a raw 16-byte blob here. Some
+    // hosts reuse the Switch 1 neutral packet in repeated 4-byte lanes; do not
+    // interpret that packed silence as byte-level energy.
+    static constexpr std::array<uint8_t, 4> kSwitchNeutral{0x00, 0x01, 0x40, 0x40};
+    for (size_t i = 0; i < blob.size(); i += kSwitchNeutral.size()) {
+        if (!std::equal(kSwitchNeutral.begin(), kSwitchNeutral.end(), blob.begin() + i))
+            return false;
+    }
+    return true;
 }
 
 static double SwitchRumbleBlobEnergy(const std::array<uint8_t, 16>& blob) {
@@ -905,17 +916,26 @@ void SteamController::SetSwitch2ProHaptics(const SteamControllerSwitch2ProHaptic
         m_lastSwitch2ProRightRumble = haptics.rightRumble;
         m_hasSwitch2ProRumbleState = true;
 
-        const double leftBody = leftEnergy > 0.74
-            ? std::pow((leftEnergy - 0.74) / 0.26, 1.25) * 0.40
-            : 0.0;
-        const double rightBody = rightEnergy > 0.74
-            ? std::pow((rightEnergy - 0.74) / 0.26, 1.25) * 0.40
-            : 0.0;
-        m_rumbleBaseLeft = leftBody > 0.0 ? UnitToHapticSpeed(leftBody, 0x0E00) : 0;
-        m_rumbleBaseRight = rightBody > 0.0 ? UnitToHapticSpeed(rightBody, 0x0E00) : 0;
+        // Unlike Switch 1, the Switch 2 HD Rumble 2 blob is not decoded yet.
+        // Never latch raw byte "energy" into persistent body rumble; otherwise
+        // neutral/stop blobs can be translated into an endless SC2026 rumble.
+        m_rumbleBaseLeft = 0;
+        m_rumbleBaseRight = 0;
 
-        pulseLeftIntensity = ClampUnit(leftDelta * 1.35 + leftEnergy * 0.18);
-        pulseRightIntensity = ClampUnit(rightDelta * 1.35 + rightEnergy * 0.18);
+        const double leftBodyTail = !leftSilent
+            ? ClampUnit(leftDelta * 1.15 + (std::max)(0.0, leftEnergy - 0.82) * 0.38)
+            : 0.0;
+        const double rightBodyTail = !rightSilent
+            ? ClampUnit(rightDelta * 1.15 + (std::max)(0.0, rightEnergy - 0.82) * 0.38)
+            : 0.0;
+        m_rumbleBoostLeft = leftBodyTail > 0.020 ? UnitToHapticSpeed(leftBodyTail * 0.36, 0x0C00) : 0;
+        m_rumbleBoostRight = rightBodyTail > 0.020 ? UnitToHapticSpeed(rightBodyTail * 0.36, 0x0C00) : 0;
+        m_rumbleBoostUntil = (m_rumbleBoostLeft != 0 || m_rumbleBoostRight != 0)
+            ? now + std::chrono::milliseconds(55)
+            : std::chrono::steady_clock::time_point{};
+
+        pulseLeftIntensity = ClampUnit(leftDelta * 1.55 + (std::max)(0.0, leftEnergy - 0.70) * 0.20);
+        pulseRightIntensity = ClampUnit(rightDelta * 1.55 + (std::max)(0.0, rightEnergy - 0.70) * 0.20);
         if (!leftSilent && pulseLeftIntensity > 0.045 &&
             now - m_lastSwitch2ProLeftPulse >= std::chrono::milliseconds(20)) {
             pulseLeft = true;
