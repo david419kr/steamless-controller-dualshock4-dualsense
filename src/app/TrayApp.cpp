@@ -187,6 +187,7 @@ bool TrayApp::Init(HINSTANCE hInstance) {
 
     LoadSettings();
     AddTrayIcon();
+    MaybeAutoEnableSteamlessMode();
     SetTimer(m_hwnd, DEVICE_POLL_TIMER_ID, DEVICE_POLL_INTERVAL_MS, nullptr);
     return true;
 }
@@ -231,10 +232,26 @@ LRESULT TrayApp::HandleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 
         switch (LOWORD(wp)) {
         case IDM_TOGGLE:
-            if (m_controller->IsGameModeActive())
+            if (m_controller->IsGameModeActive()) {
                 m_controller->DisableGameMode();
-            else
+                if (m_autoEnable && m_controller->IsConnected())
+                    m_autoEnableSuppressedUntilReconnect = true;
+            } else {
                 m_controller->EnableGameMode();
+            }
+            break;
+        case IDM_AUTO_ENABLE:
+            m_autoEnable = !m_autoEnable;
+            m_autoEnableSuppressedUntilReconnect = false;
+            m_autoEnableAttemptedForConnection = false;
+            SaveSettings();
+            MaybeAutoEnableSteamlessMode();
+            break;
+        case IDM_AUTO_RESTART_STEAM:
+            if (m_autoEnable) {
+                m_autoRestartSteam = !m_autoRestartSteam;
+                SaveSettings();
+            }
             break;
         case IDM_TRACKPAD:
             m_controller->SetTrackpadMouseEnabled(!m_controller->IsTrackpadMouseEnabled());
@@ -317,7 +334,7 @@ LRESULT TrayApp::HandleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             m_controller->RevealOriginalControllerNow();
             break;
         case IDM_RESTART_STEAM:
-            RestartSteam();
+            RestartSteam(/*launchIfNotRunning=*/true);
             break;
         case IDC_DS_RUMBLE_THRESHOLD_RESET:
             ResetDualSenseRumbleThreshold();
@@ -336,13 +353,16 @@ LRESULT TrayApp::HandleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         return 0;
 
     case WM_DEVICECHANGE:
-        if (wp == DBT_DEVICEARRIVAL || wp == DBT_DEVICEREMOVECOMPLETE)
+        if (wp == DBT_DEVICEARRIVAL || wp == DBT_DEVICEREMOVECOMPLETE) {
             m_controller->OnDeviceChange();
+            MaybeAutoEnableSteamlessMode();
+        }
         return TRUE;
 
     case WM_TIMER:
         if (wp == DEVICE_POLL_TIMER_ID) {
             m_controller->PollForController();
+            MaybeAutoEnableSteamlessMode();
             return 0;
         }
         break;
@@ -630,17 +650,22 @@ static bool IsSteamRunning() {
     return running;
 }
 
-static void RestartSteamProcess(std::wstring steamExe) {
-    if (IsSteamRunning()) {
+static void RestartSteamProcess(std::wstring steamExe, bool launchIfNotRunning) {
+    const bool wasRunning = IsSteamRunning();
+    if (wasRunning) {
         ShellExecuteW(nullptr, L"open", steamExe.c_str(), L"-shutdown", nullptr, SW_HIDE);
         for (int i = 0; i < 60 && IsSteamRunning(); ++i)
             std::this_thread::sleep_for(std::chrono::milliseconds(250));
     }
 
-    ShellExecuteW(nullptr, L"open", steamExe.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+    if (wasRunning || launchIfNotRunning)
+        ShellExecuteW(nullptr, L"open", steamExe.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
 }
 
-void TrayApp::RestartSteam() {
+void TrayApp::RestartSteam(bool launchIfNotRunning) {
+    if (!launchIfNotRunning && !IsSteamRunning())
+        return;
+
     std::wstring steamExe = FindSteamExecutablePath();
     if (steamExe.empty()) {
         ShowTrayBalloon(L"Steam not found",
@@ -649,7 +674,27 @@ void TrayApp::RestartSteam() {
         return;
     }
 
-    std::thread(RestartSteamProcess, std::move(steamExe)).detach();
+    std::thread(RestartSteamProcess, std::move(steamExe), launchIfNotRunning).detach();
+}
+
+void TrayApp::MaybeAutoEnableSteamlessMode() {
+    if (!m_controller->IsConnected()) {
+        m_autoEnableSuppressedUntilReconnect = false;
+        m_autoEnableAttemptedForConnection = false;
+        return;
+    }
+
+    if (!m_autoEnable ||
+        m_controller->IsGameModeActive() ||
+        m_autoEnableSuppressedUntilReconnect ||
+        m_autoEnableAttemptedForConnection) {
+        return;
+    }
+
+    m_autoEnableAttemptedForConnection = true;
+    m_controller->EnableGameMode();
+    if (m_controller->IsGameModeActive() && m_autoRestartSteam)
+        RestartSteam(/*launchIfNotRunning=*/false);
 }
 
 bool TrayApp::IsStartupEnabled() const {
@@ -721,6 +766,8 @@ void TrayApp::LoadSettings() {
     m_controller->SetTrackpadDpadEnabled (readBool(L"TrackpadDpad",    false));
     m_controller->SetTrackpadDpadUseRight(readBool(L"TrackpadDpadRight", false));
     m_controller->SetHideOriginalControllerEnabled(readBool(L"HideOriginalController", true));
+    m_autoEnable = readBool(L"AutoEnable", false);
+    m_autoRestartSteam = readBool(L"AutoRestartSteam", false);
     LoadBackButtonMappingsForCurrentMode(key);
     m_controller->SetDualSenseAudioRumbleThreshold(
         readThreshold(L"DualSenseRumbleThreshold", DUALSENSE_RUMBLE_THRESHOLD_DEFAULT));
@@ -793,6 +840,8 @@ void TrayApp::SaveSettings() {
     writeBool(L"TrackpadDpad",    m_controller->IsTrackpadDpadEnabled());
     writeBool(L"TrackpadDpadRight", m_controller->IsTrackpadDpadUseRight());
     writeBool(L"HideOriginalController", m_controller->IsHideOriginalControllerEnabled());
+    writeBool(L"AutoEnable", m_autoEnable);
+    writeBool(L"AutoRestartSteam", m_autoRestartSteam);
     DWORD outputMode = 0u;
     if (m_controller->GetOutputMode() == VirtualControllerMode::DualShock4)
         outputMode = 1u;
@@ -1321,6 +1370,16 @@ void TrayApp::ShowContextMenu() {
     UINT toggleFlags = MF_STRING | (connected ? MF_ENABLED : MF_GRAYED);
     AppendMenuW(menu, toggleFlags, IDM_TOGGLE,
                 gameModeOn ? L"Disable Steamless Mode" : L"Enable Steamless Mode");
+
+    HMENU autoEnableMenu = CreatePopupMenu();
+    UINT autoEnableFlags = MF_STRING | (m_autoEnable ? MF_CHECKED : MF_UNCHECKED);
+    AppendMenuW(autoEnableMenu, autoEnableFlags, IDM_AUTO_ENABLE, L"Auto Enable");
+    UINT autoRestartFlags = MF_STRING
+                          | (m_autoEnable ? MF_ENABLED : MF_GRAYED)
+                          | (m_autoRestartSteam ? MF_CHECKED : MF_UNCHECKED);
+    AppendMenuW(autoEnableMenu, autoRestartFlags, IDM_AUTO_RESTART_STEAM, L"Auto Restart Steam");
+    AppendMenuW(menu, MF_POPUP | MF_STRING,
+                reinterpret_cast<UINT_PTR>(autoEnableMenu), L"Auto Enable Mode");
 
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(menu, MF_STRING, IDM_RESTART_STEAM, L"Restart Steam");

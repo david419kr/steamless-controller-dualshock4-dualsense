@@ -28,7 +28,8 @@ private:
     void ShowVirtualControllerBalloon(VirtualControllerError error);
     void ShowTrayBalloon(const wchar_t* title, const wchar_t* info, DWORD infoFlags);
     void ShowContextMenu();
-    void RestartSteam();
+    void RestartSteam(bool launchIfNotRunning);
+    void MaybeAutoEnableSteamlessMode();
     void LoadSettings();
     void SaveSettings();
     void LoadBackButtonMappingsForCurrentMode();
@@ -70,6 +71,10 @@ private:
     HICON                              m_iconOn    = nullptr;
     std::unique_ptr<ControllerManager> m_controller;
     VirtualControllerError             m_lastVirtualControllerError = VirtualControllerError::None;
+    bool                               m_autoEnable = false;
+    bool                               m_autoRestartSteam = false;
+    bool                               m_autoEnableSuppressedUntilReconnect = false;
+    bool                               m_autoEnableAttemptedForConnection = false;
 
     static constexpr UINT IDM_TOGGLE        = 1001;
     static constexpr UINT IDM_EXIT          = 1002;
@@ -90,6 +95,8 @@ private:
     static constexpr UINT IDM_BACKBUTTON_MAPPINGS = 1013;
     static constexpr UINT IDM_RESTART_STEAM = 1014;
     static constexpr UINT IDM_DUALSENSE_SETTINGS = 1016;
+    static constexpr UINT IDM_AUTO_ENABLE = 1020;
+    static constexpr UINT IDM_AUTO_RESTART_STEAM = 1021;
     static constexpr UINT IDC_BACKMAP_L4 = 2001;
     static constexpr UINT IDC_BACKMAP_L5 = 2002;
     static constexpr UINT IDC_BACKMAP_R4 = 2003;

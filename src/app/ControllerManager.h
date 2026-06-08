@@ -65,6 +65,7 @@ public:
 private:
     void TryOpen(uint32_t activeReportTimeoutMs = 500);
     void Close(bool restoreLizard);
+    bool ProbeConnectedController(uint32_t reportTimeoutMs);
     void StartReadLoop();
     void StopReadLoop();
     void ReadLoop();
@@ -83,6 +84,7 @@ private:
     StateChangedFn                     m_onStateChanged;
     bool                               m_connected            = false;
     bool                               m_gameModeActive       = false;
+    uint32_t                           m_connectedPollMisses  = 0;
     bool                               m_trackpadMouseEnabled = false;
     bool                               m_backButtonsEnabled   = false;
     bool                               m_useLeftTrackpad      = false;
@@ -101,6 +103,7 @@ private:
     std::chrono::steady_clock::time_point m_lastHapticLeftPulse{};
     std::chrono::steady_clock::time_point m_lastHapticRightPulse{};
     bool                               m_hasLastImuTimestamp = false;
+    std::chrono::steady_clock::time_point m_lastInputReportAt{};
     uint32_t                           m_lastImuTimestamp = 0;
     std::chrono::steady_clock::time_point m_lastImuProgress{};
     std::chrono::steady_clock::time_point m_lastImuReassert{};
@@ -122,4 +125,5 @@ private:
     TrackpadMouse                      m_trackpad;
     std::thread                        m_readThread;
     std::atomic<bool>                  m_readRunning{false};
+    std::atomic<bool>                  m_controllerDisconnected{false};
 };

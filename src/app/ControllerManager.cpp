@@ -8,6 +8,9 @@
 
 static std::unique_ptr<SteamController> g_ctrl;
 static constexpr uint32_t POLL_OPEN_REPORT_TIMEOUT_MS = 75;
+static constexpr uint32_t CONNECTED_POLL_REPORT_TIMEOUT_MS = 250;
+static constexpr uint32_t CONNECTED_POLL_MISS_LIMIT = 3;
+static constexpr std::chrono::milliseconds ACTIVE_REPORT_STALE_TIMEOUT{2500};
 
 static uint8_t ButtonByte(const SteamControllerState& state, int index) {
     return static_cast<uint8_t>((state.buttons >> (index * 8)) & 0xFF);
@@ -109,17 +112,31 @@ ControllerManager::~ControllerManager() {
 }
 
 void ControllerManager::OnDeviceChange() {
-    if (!m_connected)
+    if (!m_connected) {
         TryOpen();
-    else if (g_ctrl && !g_ctrl->IsOpen())
+    } else if (g_ctrl && !g_ctrl->IsOpen()) {
         Close(/*restoreLizard=*/false);
+    } else if (!m_gameModeActive) {
+        ProbeConnectedController(CONNECTED_POLL_REPORT_TIMEOUT_MS);
+    }
 }
 
 void ControllerManager::PollForController() {
-    if (!m_connected)
+    if (!m_connected) {
         TryOpen(POLL_OPEN_REPORT_TIMEOUT_MS);
-    else if (g_ctrl && !g_ctrl->IsOpen())
+        return;
+    }
+
+    if (m_controllerDisconnected.exchange(false) || (g_ctrl && !g_ctrl->IsOpen())) {
         Close(/*restoreLizard=*/false);
+        return;
+    }
+
+    if (!m_gameModeActive && !ProbeConnectedController(CONNECTED_POLL_REPORT_TIMEOUT_MS)) {
+        ++m_connectedPollMisses;
+        if (m_connectedPollMisses >= CONNECTED_POLL_MISS_LIMIT)
+            Close(/*restoreLizard=*/false);
+    }
 }
 
 void ControllerManager::EnableGameMode() {
@@ -163,6 +180,9 @@ void ControllerManager::EnableGameMode() {
     }
     m_lastLeftTriggerPosition.store(0, std::memory_order_relaxed);
     m_lastRightTriggerPosition.store(0, std::memory_order_relaxed);
+    m_connectedPollMisses = 0;
+    m_controllerDisconnected.store(false, std::memory_order_relaxed);
+    m_lastInputReportAt = std::chrono::steady_clock::now();
     m_lastImuProgress = std::chrono::steady_clock::now();
     m_lastImuReassert = m_lastImuProgress;
     ApplyTrackpadRuntimeSettings();
@@ -598,6 +618,8 @@ void ControllerManager::TryOpen(uint32_t activeReportTimeoutMs) {
         g_ctrl->SetDualSenseAudioRumbleThreshold(m_dualSenseAudioRumbleThreshold);
         g_ctrl->SetSwitch2ProRumbleImpactThreshold(m_switch2ProRumbleImpactThreshold);
         m_connected = true;
+        m_connectedPollMisses = 0;
+        m_controllerDisconnected.store(false, std::memory_order_relaxed);
         m_onStateChanged(m_connected, m_gameModeActive, VirtualControllerError::None);
     }
 }
@@ -616,7 +638,22 @@ void ControllerManager::Close(bool restoreLizard) {
     }
     m_connected      = false;
     m_gameModeActive = false;
+    m_connectedPollMisses = 0;
+    m_controllerDisconnected.store(false, std::memory_order_relaxed);
     m_onStateChanged(m_connected, m_gameModeActive, VirtualControllerError::None);
+}
+
+bool ControllerManager::ProbeConnectedController(uint32_t reportTimeoutMs) {
+    if (!g_ctrl || !g_ctrl->IsOpen())
+        return false;
+
+    uint8_t buf[64];
+    const size_t n = g_ctrl->ReadReport(buf, sizeof(buf), reportTimeoutMs);
+    if (n == 0)
+        return false;
+
+    m_connectedPollMisses = 0;
+    return true;
 }
 
 void ControllerManager::StartReadLoop() {
@@ -635,7 +672,16 @@ void ControllerManager::ReadLoop() {
     while (m_readRunning) {
         if (g_ctrl) g_ctrl->MaintainRumble();
         size_t n = g_ctrl->ReadReport(buf, sizeof(buf), /*timeoutMs=*/32);
-        if (n == 0) continue;
+        const auto now = std::chrono::steady_clock::now();
+        if (n == 0) {
+            if (now - m_lastInputReportAt >= ACTIVE_REPORT_STALE_TIMEOUT) {
+                m_controllerDisconnected.store(true, std::memory_order_relaxed);
+                m_readRunning = false;
+                break;
+            }
+            continue;
+        }
+        m_lastInputReportAt = now;
         if (SteamController::IsBatteryReportId(buf[0])) {
             SteamControllerBatteryState battery;
             if (SteamController::ParseBatteryReport(buf, n, battery) && m_virtual)
