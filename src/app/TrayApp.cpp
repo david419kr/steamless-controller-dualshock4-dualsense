@@ -18,7 +18,7 @@
 static TrayApp* g_app = nullptr;
 static constexpr wchar_t GITHUB_API_HOST[] = L"api.github.com";
 static constexpr wchar_t GITHUB_CURRENT_RELEASE_API_PATH_PREFIX[] =
-    L"/repos/david419kr/steamless-controller-XB-PS-NS/releases/tags/Build%20";
+    L"/repos/david419kr/steamless-controller-XB-PS-NS/releases/tags/Build-";
 static constexpr wchar_t GITHUB_LATEST_RELEASE_API_PATH[] =
     L"/repos/david419kr/steamless-controller-XB-PS-NS/releases/latest";
 static constexpr wchar_t GITHUB_LATEST_RELEASE_URL[] =
@@ -68,7 +68,7 @@ static int BuildDateCode() {
 
 static std::wstring BuildLabel() {
     const int code = BuildDateCode();
-    std::wstring label = L"Build ";
+    std::wstring label = L"Build-";
     AppendTwoDigits(label, code / 10000);
     AppendTwoDigits(label, (code / 100) % 100);
     AppendTwoDigits(label, code % 100);
@@ -80,7 +80,7 @@ static std::wstring BuildMenuLabel() {
 }
 
 static bool ParseBuildTag(const std::string& tag, int& code) {
-    static constexpr char prefix[] = "Build ";
+    static constexpr char prefix[] = "Build-";
     if (tag.size() != std::strlen(prefix) + 6 ||
         tag.compare(0, std::strlen(prefix), prefix) != 0) {
         return false;
@@ -293,7 +293,7 @@ static UpdateCheckResult CheckGitHubReleaseUpdate() {
         !ParseBuildTag(latestTag, latestBuild)) {
         return {false,
                 L"Update check failed",
-                L"The latest release tag is not in the Build YYMMDD format."};
+                L"The latest release tag is not in the Build-YYMMDD format."};
     }
 
     if (latestBuild > currentBuild) {

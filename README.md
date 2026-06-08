@@ -128,8 +128,6 @@ The installer output is `build\installer\SteamlessController-Setup.exe`. It inst
 
 The build script downloads the prerequisite installers into `build\prereqs`, writes `build\prereqs\prereqs.json` with source URLs and SHA-256 hashes, then compiles `resources\InnoInstallerScript.iss` with Inno Setup 6. If `ISCC.exe` is not on `PATH`, install Inno Setup 6 first.
 
-Release tags should use the app build label format, such as `Build 260609`. The tray menu shows `Build YYMMDD (Check Update)` and checks GitHub releases against that tag. If the current build tag is not published as a release, the app treats the build as up to date.
-
 You can also use the CMake preset after configuring:
 
 ```powershell

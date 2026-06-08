@@ -69,8 +69,6 @@ powershell -ExecutionPolicy Bypass -File tools\build-installer.ps1
 
 이 스크립트는 prerequisite 설치 파일을 `build\prereqs`에 내려받고, URL과 SHA-256 해시를 `build\prereqs\prereqs.json`에 기록한 뒤 Inno Setup 6으로 `resources\InnoInstallerScript.iss`를 컴파일합니다. `ISCC.exe`가 `PATH`에 없으면 Inno Setup 6을 먼저 설치해야 합니다.
 
-릴리즈 태그는 앱 빌드 표시 형식과 같은 `Build 260609` 형식을 사용합니다. 트레이 메뉴에는 `Build YYMMDD (Check Update)`가 표시되며, 클릭하면 GitHub 릴리즈에서 해당 태그보다 최신 릴리즈가 있는지 확인합니다. 현재 빌드 태그가 릴리즈에 없으면 최신 빌드로 간주합니다.
-
 이미 CMake configure가 끝난 상태라면 다음 preset도 사용할 수 있습니다.
 
 ```powershell
