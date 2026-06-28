@@ -301,13 +301,13 @@ static constexpr uint8_t HAPTIC_PULSE_HIGH_PRIORITY = 0x01;
 // ---------------------------------------------------------------------------
 
 bool SteamController::Open(uint32_t activeReportTimeoutMs) {
-    for (uint16_t pid : { SC2026_PID, SC2026_DONGLE_PID }) {
+    for (uint16_t pid : { SC2026_PID, SC2026_BLUETOOTH_PID, SC2026_DONGLE_PID }) {
         auto paths = HidDevice::Enumerate(VALVE_VID, pid, VENDOR_USAGE_PAGE);
         if (paths.empty()) continue;
 
-        // For the wired controller there is only one interface; for the dongle
-        // there are up to four slots (one per paired controller). Try each in
-        // order and use the first that produces a live input report.
+        // For the wired/Bluetooth controller there is only one active vendor
+        // interface; for the dongle there are up to four slots (one per paired
+        // controller). Try each in order and use the first live input report.
         for (auto const& path : paths) {
             if (!m_device.Open(path)) continue;
 
@@ -328,8 +328,8 @@ bool SteamController::Open(uint32_t activeReportTimeoutMs) {
         }
     }
 
-    printf("No Steam Controller found (wired PID=%04X or dongle PID=%04X).\n",
-           SC2026_PID, SC2026_DONGLE_PID);
+    printf("No Steam Controller found (wired PID=%04X, Bluetooth PID=%04X, or dongle PID=%04X).\n",
+           SC2026_PID, SC2026_BLUETOOTH_PID, SC2026_DONGLE_PID);
     return false;
 }
 

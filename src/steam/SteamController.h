@@ -87,6 +87,7 @@ public:
 
     static constexpr uint16_t VALVE_VID        = 0x28DE;
     static constexpr uint16_t SC2026_PID       = 0x1302;  // wired USB
+    static constexpr uint16_t SC2026_BLUETOOTH_PID = 0x1303; // Bluetooth LE
     static constexpr uint16_t SC2026_DONGLE_PID = 0x1304; // wireless dongle ("Steam Controller Puck")
 
     // HID Usage Page for the vendor collection that carries all game input.

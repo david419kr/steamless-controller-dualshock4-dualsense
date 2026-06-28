@@ -58,9 +58,16 @@ static std::wstring ToUpper(std::wstring text) {
 
 static bool IsSteamControllerInstanceId(const std::wstring& id) {
     std::wstring upper = ToUpper(id);
-    return upper.find(L"VID_28DE") != std::wstring::npos
-        && (upper.find(L"PID_1302") != std::wstring::npos
-         || upper.find(L"PID_1304") != std::wstring::npos);
+    const bool hasValveVid = upper.find(L"VID_28DE") != std::wstring::npos
+                          || upper.find(L"VID&0228DE") != std::wstring::npos;
+    const bool hasSteamControllerPid =
+        upper.find(L"PID_1302") != std::wstring::npos
+        || upper.find(L"PID_1303") != std::wstring::npos
+        || upper.find(L"PID_1304") != std::wstring::npos
+        || upper.find(L"PID&1302") != std::wstring::npos
+        || upper.find(L"PID&1303") != std::wstring::npos
+        || upper.find(L"PID&1304") != std::wstring::npos;
+    return hasValveVid && hasSteamControllerPid;
 }
 
 static bool IsSteamControllerHidInstanceId(const std::wstring& id) {
@@ -229,6 +236,11 @@ std::vector<std::wstring> HidHideController::EnumerateSteamControllerInstanceIds
     std::vector<std::wstring> wired = HidDevice::EnumerateInstanceIds(SteamController::VALVE_VID,
                                                                       SteamController::SC2026_PID);
     for (auto& id : wired)
+        AddUnique(ids, std::move(id));
+
+    std::vector<std::wstring> bluetooth = HidDevice::EnumerateInstanceIds(SteamController::VALVE_VID,
+                                                                          SteamController::SC2026_BLUETOOTH_PID);
+    for (auto& id : bluetooth)
         AddUnique(ids, std::move(id));
 
     std::vector<std::wstring> dongle = HidDevice::EnumerateInstanceIds(SteamController::VALVE_VID,

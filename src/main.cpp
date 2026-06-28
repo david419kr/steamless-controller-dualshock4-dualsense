@@ -176,7 +176,7 @@ int main() {
     signal(SIGINT,  OnSignal);
     signal(SIGTERM, OnSignal);
 
-    printf("=== SteamProbe — 2026 Steam Controller (VID=28DE PID=1302) ===\n\n");
+    printf("=== SteamProbe — 2026 Steam Controller (VID=28DE PID=1302/1303/1304) ===\n\n");
     printf("NOTE: Close Steam before running this tool.\n\n");
 
     EnumerateAllValveDevices();
